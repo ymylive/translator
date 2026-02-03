@@ -1,0 +1,10 @@
+unrpyc
+unrpa
+tkinterdnd2
+pywinstyles
+customtkinter>=5.2.0
+
+# Optional: Additional translator support
+# anthropic>=0.18.0        # For Claude translator
+# google-cloud-translate   # For Google translator
+# deepl>=1.16.0           # For DeepL translator
