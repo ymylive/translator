@@ -1,8 +1,14 @@
-unrpyc
-unrpa
-tkinterdnd2
-pywinstyles
+# Core dependencies
 customtkinter>=5.2.0
+tkinterdnd2>=0.3.0
+httpx>=0.27.0
+
+# Windows-specific (optional)
+pywinstyles>=1.8; sys_platform == "win32"
+
+# Ren'Py decompilation - install from GitHub
+# pip install git+https://github.com/CensoredUsername/unrpyc.git
+unrpyc @ git+https://github.com/CensoredUsername/unrpyc.git
 
 # Optional: Additional translator support
 # anthropic>=0.18.0        # For Claude translator
