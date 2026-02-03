@@ -70,7 +70,8 @@ class OpenAITranslator(TranslatorBase):
             "Return ONLY the items joined by the exact delimiter below, with no extra text."
         )
 
-        joined = delim.join([f"{i + 1}|{t.replace('\n', NL_TOKEN)}" for i, t in enumerate(texts)])
+        newline = '\n'
+        joined = delim.join([f"{i + 1}|{t.replace(newline, NL_TOKEN)}" for i, t in enumerate(texts)])
         payload = {
             "model": self.model,
             "messages": [
