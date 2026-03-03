@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test-format:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: easy_game_translator
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore easy_game_translator.sln
+
+      - name: Build
+        run: dotnet build easy_game_translator.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test easy_game_translator.sln --configuration Release --no-build
+
+      - name: Format check
+        run: dotnet format easy_game_translator.sln --verify-no-changes
+

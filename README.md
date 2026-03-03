@@ -1,201 +1,111 @@
-# RenPy Translator
+# easy_game_translator (EGT)
 
-<div align="center">
+Windows-first desktop translator for game text assets.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
+## Product Positioning
 
-**A modern GUI tool for translating Ren'Py visual novel games using AI-powered translation APIs.**
+EGT is a desktop tool for players who want local game translation with minimal setup:
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration) • [Building](#building)
+1. Drag a game `.exe` into EGT.
+2. Select translation engine (`DeepL`, `Microsoft`, `LLM`, or `mock`).
+3. Extract text, translate, and generate reversible output.
+4. Optionally apply to original game folder with mandatory backup.
 
-</div>
+For advanced users, EGT also supports logs, glossary import, cache, CLI automation, and plugin extension.
 
----
+## MVP Features
 
-## Features
+1. EXE drag-and-drop or manual path input.
+2. Generic text profile for `.json .csv .tsv .ini .xml .yaml .yml .txt .strings`.
+3. Translation providers: DeepL / Microsoft Translator / OpenAI-compatible LLM.
+4. Placeholder protection (`{0}`, `%s`, `<...>`, `\n`) and restoration.
+5. Translation cache (SQLite) and glossary CSV.
+6. Output to `./EGT_Output/<game>/<timestamp>/` by default.
+7. Optional in-place apply with mandatory backup to `./EGT_Backup/<timestamp>/`.
+8. Manifest generation for rollback and reproducibility.
+9. CLI + Desktop UI based on the same core pipeline.
 
-- **Multi-Engine Support**: Translate games built with Ren'Py, RPG Maker, and Unity
-- **Multiple Translation APIs**:
-  - OpenAI / OpenRouter (GPT-4, DeepSeek, Qwen, etc.)
-  - Anthropic Claude
-  - DeepL
-  - Google Cloud Translation
-- **Modern UI**: Built with CustomTkinter for a clean Material Design experience
-- **Smart Features**:
-  - Drag & drop game files
-  - Stop/Resume translation with progress preservation
-  - Translation caching (memory + SQLite)
-  - Glossary support for consistent terminology
-  - Post-processing rules for text corrections
-  - API key rotation for rate limit handling
-- **Performance Optimized**:
-  - 60fps smooth animations
-  - Virtualized log viewer
-  - Batch processing with configurable size
-- **Keyboard Shortcuts**:
-  - `Ctrl+S` - Save configuration
-  - `Ctrl+Enter` - Start translation
-  - `Escape` - Stop translation
-  - `Ctrl+1~5` - Switch tabs
+## Screenshots
 
-## Installation
+- `[TODO] docs/assets/screenshot-main-window.png`
+- `[TODO] docs/assets/screenshot-progress-log.png`
+
+## Quick Start
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- pip package manager
+1. .NET 8 SDK
+2. Windows 10/11 (MVP target)
 
-### From Source
-
-```bash
-# Clone the repository
-git clone https://github.com/ymylive/translator.git
-cd translator
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-python app.py
-```
-
-### From Release
-
-Download the latest release from the [Releases](https://github.com/ymylive/translator/releases) page.
-
-## Usage
-
-### Quick Start
-
-1. **Launch the application**: Run `python app.py` or the executable
-2. **Select your game**:
-   - Drag & drop the game EXE onto the window, or
-   - Click "Browse" to select the game executable
-3. **Configure translation**:
-   - Choose your target language
-   - Select a translation API (OpenAI, Claude, DeepL, etc.)
-   - Enter your API key
-4. **Start translating**: Click "Start Translation" button
-
-### Output
-
-Translated files are saved to:
-```
-<game_root>/game/tl/<language>/zz_auto_strings.rpy
-```
-
-### Stop & Resume
-
-- Click **Stop** to pause translation (current batch will complete)
-- Click **Start** again to resume from where you left off
-- Progress is automatically cached in the `caches/` directory
-
-## Configuration
-
-### Translation Settings
-
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Batch Size | Number of strings per API call | 100 |
-| Max Characters | Maximum characters per batch | 60000 |
-| Workers | Concurrent translation threads | 5 |
-| Force Language | Set game language on startup | Enabled |
-
-### Glossary
-
-Create a glossary file (JSON or CSV) to ensure consistent translation of:
-- Character names
-- Game-specific terms
-- Technical vocabulary
-
-### Post-Processing Rules
-
-Define text replacement rules to fix common translation issues:
-- Regex support for pattern matching
-- Applied after translation completes
-
-## Supported Games
-
-### Ren'Py
-- Automatic `.rpyc` decompilation
-- RPA archive extraction
-- Preserves placeholders (`[Name]`, `{i}`, etc.)
-
-### RPG Maker (Planned)
-- MV/MZ JSON extraction
-- VX/VX Ace support
-
-### Unity (Planned)
-- I2 Localization support
-- TextMesh Pro extraction
-
-## Building
-
-### Windows Executable
+### Build
 
 ```bash
-# Default single-file build
-python build_exe.py
-
-# Directory mode (faster startup)
-python build_exe.py --dir
-
-# Debug mode (with console)
-python build_exe.py --debug
+dotnet restore easy_game_translator.sln
+dotnet build easy_game_translator.sln -c Debug
 ```
 
-### GitHub Actions
-
-Releases are automatically built via GitHub Actions when a new tag is pushed:
+### Run CLI
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+dotnet run --project src/EGT.Cli -- --help
 ```
 
-## Project Structure
+### Run Desktop App
 
-```
-translator/
-├── app.py              # Main application entry
-├── translator_core.py  # Core translation logic
-├── ui/                 # UI components
-│   ├── components.py   # Custom widgets
-│   ├── animations.py   # Animation engine
-│   ├── theme.py        # Color themes
-│   └── shortcuts.py    # Keyboard shortcuts
-├── translators/        # Translation API implementations
-│   ├── openai_translator.py
-│   ├── claude_translator.py
-│   ├── deepl_translator.py
-│   └── google_translator.py
-├── game_engines/       # Game engine handlers
-│   ├── renpy_engine.py
-│   ├── rpgmaker_engine.py
-│   └── unity_engine.py
-└── build_exe.py        # PyInstaller build script
+```bash
+dotnet run --project src/EGT.App
 ```
 
-## Requirements
+## CLI Examples
 
+```bash
+# Basic run with mock provider
+dotnet run --project src/EGT.Cli -- run --exe "D:\Games\MyGame\MyGame.exe" --provider mock
+
+# DeepL run (output only)
+dotnet run --project src/EGT.Cli -- run --exe "D:\Games\MyGame\MyGame.exe" --provider deepl --api-key "<DEEPL_KEY>"
+
+# Microsoft run with region
+dotnet run --project src/EGT.Cli -- run --exe "D:\Games\MyGame\MyGame.exe" --provider microsoft --api-key "<AZURE_KEY>" --region "eastasia"
+
+# OpenAI-compatible LLM run
+dotnet run --project src/EGT.Cli -- run --exe "D:\Games\MyGame\MyGame.exe" --provider llm --api-key "<KEY>" --base-url "https://api.openai.com" --model "gpt-4o-mini"
+
+# Apply directly to game (backup required)
+dotnet run --project src/EGT.Cli -- run --exe "D:\Games\MyGame\MyGame.exe" --provider mock --apply
+
+# Restore from manifest
+dotnet run --project src/EGT.Cli -- restore --manifest "EGT_Output\MyGame\20260223_120001\manifest.json"
 ```
-customtkinter>=5.2.0
-tkinterdnd2>=0.3.0
-pywinstyles>=1.8
-httpx>=0.27.0
+
+## End-to-End Demo (Fixture)
+
+Run the automated fixture scenario (extract -> translate(mock) -> output -> manifest -> restore):
+
+```bash
+dotnet test tests/EGT.Tests/EGT.Tests.csproj --filter PipelineE2ETests
 ```
 
-## Contributing
+## Output Folders
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. `EGT_Output/<game>/<timestamp>/` translated files + `manifest.json`.
+2. `EGT_Backup/<timestamp>/` backups used by restore (only when `--apply`).
+3. `EGT_Cache/translation_cache.db` translation cache.
+4. `logs/` app and CLI logs.
 
-## License
+## Engineering Docs
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+1. `docs/SPEC.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/UX.md`
+4. `docs/DESIGN_SYSTEM.md`
+5. `docs/DELIVERY_PLAN.md`
+6. `CONTRIBUTING.md`
+7. `SECURITY.md`
 
-## Acknowledgments
+## Legal and Ethical Boundary
 
-- [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) for the modern UI framework
-- [unrpyc](https://github.com/CensoredUsername/unrpyc) for Ren'Py decompilation
+1. EGT is only for legally owned games and authorized localization use cases.
+2. EGT does not distribute pirated content or any built-in game assets.
+3. By default, EGT uploads only extracted text fragments to translation services, not raw game files.
+4. Users are responsible for compliance with third-party API terms and local laws.

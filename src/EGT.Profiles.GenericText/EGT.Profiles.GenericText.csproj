@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>EGT.Profiles.GenericText</AssemblyName>
+    <RootNamespace>EGT.Profiles.GenericText</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EGT.Contracts\EGT.Contracts.csproj" />
+    <ProjectReference Include="..\EGT.Core\EGT.Core.csproj" />
+  </ItemGroup>
+</Project>
+

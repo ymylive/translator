@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: easy_game_translator
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore easy_game_translator.sln
+
+      - name: Publish CLI
+        run: dotnet publish src/EGT.Cli/EGT.Cli.csproj -c Release -r win-x64 --self-contained false -o artifacts/cli
+
+      - name: Publish Desktop App
+        run: dotnet publish src/EGT.App/EGT.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/app
+
+      - name: Package artifacts
+        run: |
+          Compress-Archive -Path artifacts/cli/* -DestinationPath artifacts/EGT-CLI-win-x64.zip
+          Compress-Archive -Path artifacts/app/* -DestinationPath artifacts/EGT-App-win-x64.zip
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: EGT-Release-${{ github.ref_name }}
+          path: |
+            easy_game_translator/artifacts/EGT-CLI-win-x64.zip
+            easy_game_translator/artifacts/EGT-App-win-x64.zip
+

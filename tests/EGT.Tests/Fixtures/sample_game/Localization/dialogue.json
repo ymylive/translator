@@ -1,0 +1,6 @@
+{
+  "start_message": "Welcome, hero!",
+  "quest_hint": "Collect 10 apples.",
+  "formatted": "HP {0} / {1}"
+}
+
