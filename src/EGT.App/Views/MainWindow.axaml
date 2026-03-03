@@ -15,7 +15,7 @@
                    FontSize="26"
                    FontWeight="Bold"
                    Foreground="#0F766E" />
-        <TextBlock Text="Drag a game EXE into the drop zone, then run translation. By default EGT sends only extracted text snippets."
+        <TextBlock Text="将游戏 EXE 拖入下方区域后开始翻译。默认仅上传抽取出的文本片段，不上传游戏文件。"
                    TextWrapping="Wrap" />
       </StackPanel>
     </Border>
@@ -34,29 +34,29 @@
                   CornerRadius="16"
                   PointerPressed="DropZone_OnPointerPressed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
-              <TextBlock Text="Step 1: Drop .exe here"
+              <TextBlock Text="第 1 步：将 .exe 拖到这里"
                          FontWeight="SemiBold"
                          FontSize="20"
                          HorizontalAlignment="Center" />
-              <TextBlock Text="You can also paste an absolute path by clicking this area."
+              <TextBlock Text="也可以点击此区域并粘贴 EXE 绝对路径。"
                          HorizontalAlignment="Center" />
             </StackPanel>
           </Border>
 
           <Border Classes="card">
             <StackPanel Spacing="8">
-              <TextBlock Text="Quick Start (Required)" Classes="section-title" />
-              <TextBlock Text="Fill these fields first. Advanced settings are optional."
+              <TextBlock Text="快速开始（必填）" Classes="section-title" />
+              <TextBlock Text="请先填写这些字段。高级设置可选。"
                          TextWrapping="Wrap" />
               <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                     ColumnDefinitions="130,*">
-                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="EXE Path" />
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="EXE 路径" />
                 <TextBox Grid.Row="0" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ExePath}" />
 
-                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Profile" />
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="处理策略" />
                 <TextBox Grid.Row="1" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ProfileName}" />
 
-                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Provider" />
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="翻译引擎" />
                 <ComboBox Grid.Row="2"
                           Grid.Column="1"
                           Classes="form-field"
@@ -64,10 +64,10 @@
                           ItemsSource="{Binding ProviderOptions}"
                           SelectedItem="{Binding ProviderName}" />
 
-                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Source Lang" />
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="源语言" />
                 <TextBox Grid.Row="3" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding SourceLang}" />
 
-                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Target Lang" />
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="目标语言" />
                 <TextBox Grid.Row="4" Grid.Column="1" Classes="form-field" Text="{Binding TargetLang}" />
               </Grid>
             </StackPanel>
@@ -76,16 +76,16 @@
           <Border Classes="card">
             <StackPanel Spacing="8">
               <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="Advanced Settings" Classes="section-title" />
+                <TextBlock Text="高级设置" Classes="section-title" />
                 <Button Content="{Binding AdvancedToggleText}" Command="{Binding ToggleAdvancedCommand}" />
               </StackPanel>
               <TextBlock IsVisible="{Binding ShowAdvancedSettings}"
-                         Text="Use these options for glossary, private endpoints, and performance tuning."
+                         Text="用于术语表、私有接口、分块和性能调优。"
                          TextWrapping="Wrap" />
               <Grid IsVisible="{Binding ShowAdvancedSettings}"
                     RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                     ColumnDefinitions="130,*">
-                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Glossary CSV" />
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="术语表 CSV" />
                 <TextBox Grid.Row="0" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding GlossaryPath}" />
 
                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="API Key" />
@@ -94,34 +94,34 @@
                 <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Base URL" />
                 <TextBox Grid.Row="2" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ProviderEndpoint}" />
 
-                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Model" />
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="模型" />
                 <TextBox Grid.Row="3" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ProviderModel}" />
 
-                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Region" />
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="区域" />
                 <TextBox Grid.Row="4" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ProviderRegion}" />
 
-                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Fallback Provider" />
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退引擎" />
                 <TextBox Grid.Row="5" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderName}" />
 
-                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Fallback API Key" />
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 API Key" />
                 <TextBox Grid.Row="6" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderApiKey}" />
 
-                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Fallback Base URL" />
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 Base URL" />
                 <TextBox Grid.Row="7" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderEndpoint}" />
 
-                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Fallback Model" />
+                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退模型" />
                 <TextBox Grid.Row="8" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderModel}" />
 
-                <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Fallback Region" />
+                <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退区域" />
                 <TextBox Grid.Row="9" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderRegion}" />
 
-                <TextBlock Grid.Row="10" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Concurrency" />
+                <TextBlock Grid.Row="10" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="并发数" />
                 <TextBox Grid.Row="10" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding MaxConcurrency}" />
 
-                <TextBlock Grid.Row="11" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI Batch Size" />
+                <TextBlock Grid.Row="11" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI 单次句数" />
                 <TextBox Grid.Row="11" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding AiBatchSize}" />
 
-                <TextBlock Grid.Row="12" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="Chunk Sentences / Chars / MB" />
+                <TextBlock Grid.Row="12" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="分块句数 / 字符上限 / 文件MB上限" />
                 <StackPanel Grid.Row="12" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
                   <TextBox Width="120" Classes="form-field" Text="{Binding MaxItemsPerBatch}" />
                   <TextBox Width="160" Classes="form-field" Text="{Binding MaxCharsPerBatch}" />
@@ -132,7 +132,7 @@
                           Grid.Column="1"
                           Classes="form-field"
                           IsChecked="{Binding ApplyInPlace}"
-                          Content="Apply directly to game folder (backup first)" />
+                          Content="直接写回游戏目录（会先备份）" />
               </Grid>
             </StackPanel>
           </Border>
@@ -145,7 +145,7 @@
                 BorderBrush="{Binding StatusBorderBrush}"
                 Background="{Binding StatusBackground}">
           <StackPanel Spacing="10">
-            <TextBlock Text="Execution Status" Classes="section-title" />
+            <TextBlock Text="执行状态" Classes="section-title" />
             <TextBlock Text="{Binding StatusMessage}" FontWeight="SemiBold" />
             <TextBlock Text="{Binding StatusDetail}" TextWrapping="Wrap" />
 
@@ -165,16 +165,16 @@
             <TextBlock Text="{Binding CurrentFileCaption}" TextWrapping="Wrap" />
 
             <StackPanel Orientation="Horizontal" Spacing="10">
-              <Button Classes="primary" Content="Start" Command="{Binding StartCommand}" />
-              <Button Classes="accent" Content="Cancel" Command="{Binding CancelCommand}" />
-              <Button Content="Open Output" Command="{Binding OpenOutputCommand}" />
+              <Button Classes="primary" Content="开始" Command="{Binding StartCommand}" />
+              <Button Classes="accent" Content="取消" Command="{Binding CancelCommand}" />
+              <Button Content="打开输出目录" Command="{Binding OpenOutputCommand}" />
             </StackPanel>
           </StackPanel>
         </Border>
 
         <Border Grid.Row="1" Classes="card" MinHeight="0" Margin="0,12,0,0">
           <Grid RowDefinitions="Auto,*" MinHeight="0">
-            <TextBlock Grid.Row="0" Text="Logs (copyable)" Classes="section-title" Margin="0,0,0,8" />
+            <TextBlock Grid.Row="0" Text="日志（可复制）" Classes="section-title" Margin="0,0,0,8" />
             <TextBox Grid.Row="1"
                      MinHeight="160"
                      Text="{Binding Logs}"
@@ -190,7 +190,7 @@
     </Grid>
 
     <Border Grid.Row="2" Classes="card" Margin="0,12,0,0" Padding="12">
-      <TextBlock Text="{Binding OutputPath, StringFormat='Output directory: {0}'}" />
+      <TextBlock Text="{Binding OutputPath, StringFormat='输出目录：{0}'}" />
     </Border>
   </Grid>
 </Window>

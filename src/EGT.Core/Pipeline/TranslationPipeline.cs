@@ -58,7 +58,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var warnings = new List<string>();
 
     var project = _projectResolver.Resolve(exePath);
-    Report(progress, "detect-project", 0, 0, null, stopwatch, $"Detected game project: {project.Name}");
+    Report(progress, "detect-project", 0, 0, null, stopwatch, $"已识别游戏项目：{project.Name}");
 
     var profile = _profileSelector.Select(project, options);
     _logger.LogInformation("Profile selected: {ProfileName}", profile.Name);
@@ -73,10 +73,10 @@ public sealed class TranslationPipeline : ITranslationPipeline
       _logger.LogInformation("Fallback provider selected: {ProviderName}", fallbackProvider.Name);
     }
 
-    Report(progress, "extract", 0, 0, null, stopwatch, $"Extracting with profile: {profile.Name}");
+    Report(progress, "extract", 0, 0, null, stopwatch, $"正在使用 Profile 抽取：{profile.Name}");
     var extraction = await profile.ExtractAsync(project, options, ct);
     var total = extraction.Entries.Count;
-    Report(progress, "extract", 0, total, null, stopwatch, $"Extracted {total} entries");
+    Report(progress, "extract", 0, total, null, stopwatch, $"已抽取 {total} 条文本");
 
     var glossary = await _glossaryLoader.LoadAsync(options.GlossaryCsvPath, ct);
     var resolvedApiKey = await ResolveProviderApiKeyAsync(provider.Name, options, ct);
@@ -215,7 +215,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
         }
 
         completed++;
-        Report(progress, "translate", completed, sourceGroups.Count, entry.Item.Context, stopwatch, "Translating");
+        Report(progress, "translate", completed, sourceGroups.Count, entry.Item.Context, stopwatch, "翻译中");
       }
     }
 
@@ -231,7 +231,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
       }
     }
 
-    Report(progress, "apply", total, total, null, stopwatch, "Applying translated content");
+    Report(progress, "apply", total, total, null, stopwatch, "正在写入翻译结果");
     var apply = await profile.ApplyAsync(project, extraction, translatedByEntryId, options, ct);
 
     var runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
@@ -258,7 +258,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
       backupRoot,
       ct);
 
-    Report(progress, "done", total, total, null, stopwatch, "Completed");
+    Report(progress, "done", total, total, null, stopwatch, "已完成");
 
     return new TranslationRunResult
     {

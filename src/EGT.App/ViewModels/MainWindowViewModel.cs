@@ -104,16 +104,16 @@ public partial class MainWindowViewModel : ObservableObject
   private bool showAdvancedSettings;
 
   [ObservableProperty]
-  private string advancedToggleText = "Show Advanced Settings";
+  private string advancedToggleText = "显示高级设置";
 
   [ObservableProperty]
   private double progressValue;
 
   [ObservableProperty]
-  private string statusMessage = "Ready";
+  private string statusMessage = "就绪";
 
   [ObservableProperty]
-  private string statusDetail = "Select a game EXE and click Start.";
+  private string statusDetail = "请选择游戏 EXE，然后点击开始。";
 
   [ObservableProperty]
   private bool hasError;
@@ -131,10 +131,10 @@ public partial class MainWindowViewModel : ObservableObject
   private string currentFile = "-";
 
   [ObservableProperty]
-  private string progressCaption = "Progress: 0.0% (waiting)";
+  private string progressCaption = "进度：0.0%（等待中）";
 
   [ObservableProperty]
-  private string currentFileCaption = "Current file: -";
+  private string currentFileCaption = "当前文件：-";
 
   [ObservableProperty]
   private string outputPath = string.Empty;
@@ -150,7 +150,7 @@ public partial class MainWindowViewModel : ObservableObject
   public void SetExePath(string path)
   {
     ExePath = path;
-    AppendLog($"EXE selected: {path}");
+    AppendLog($"已选择 EXE：{path}");
   }
 
   private async Task StartAsync()
@@ -163,8 +163,8 @@ public partial class MainWindowViewModel : ObservableObject
     IsBusy = true;
     ProgressValue = 0;
     CurrentFile = "-";
-    SetRunningStatus("Preparing", "Initializing translation task.");
-    UpdateProgressCaption("initializing");
+    SetRunningStatus("准备中", "正在初始化翻译任务。");
+    UpdateProgressCaption("初始化中");
     UpdateCurrentFileCaption();
     OutputPath = string.Empty;
     _cts = new CancellationTokenSource();
@@ -197,16 +197,16 @@ public partial class MainWindowViewModel : ObservableObject
     var progress = new Progress<PipelineProgress>(p =>
     {
       var stageLabel = GetStageLabel(p.Stage);
-      SetRunningStatus($"Running: {stageLabel}", p.Message);
+      SetRunningStatus($"执行中：{stageLabel}", p.Message);
 
       if (p.TotalItems > 0)
       {
         ProgressValue = p.ProcessedItems * 100d / p.TotalItems;
-        UpdateProgressCaption($"processed {p.ProcessedItems}/{p.TotalItems}");
+        UpdateProgressCaption($"已处理 {p.ProcessedItems}/{p.TotalItems}");
       }
       else
       {
-        UpdateProgressCaption("counting workload");
+        UpdateProgressCaption("正在统计工作量");
       }
 
       if (!string.IsNullOrWhiteSpace(p.CurrentFile))
@@ -218,7 +218,7 @@ public partial class MainWindowViewModel : ObservableObject
 
       if (p.ProcessedItems % 25 == 0 || p.Stage is "done" or "extract")
       {
-        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)} {p.ItemsPerSecond:F2}/s");
+        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)}，速率 {p.ItemsPerSecond:F2}/s");
       }
     });
 
@@ -230,41 +230,41 @@ public partial class MainWindowViewModel : ObservableObject
       if (result.TotalItems > 0)
       {
         ProgressValue = 100;
-        UpdateProgressCaption($"processed {result.TotalItems}/{result.TotalItems}");
+        UpdateProgressCaption($"已处理 {result.TotalItems}/{result.TotalItems}");
       }
       else
       {
-        UpdateProgressCaption("no translatable entries found");
+        UpdateProgressCaption("未发现可翻译条目");
       }
 
       if (result.Success)
       {
-        SetIdleStatus("Completed", "Translation finished. You can open the output folder.");
+        SetIdleStatus("已完成", "翻译已完成，可打开输出目录查看。");
       }
       else
       {
-        SetIdleStatus("Completed with warnings", "Some entries failed. Check logs for details.");
+        SetIdleStatus("完成（有警告）", "部分条目失败，请查看日志详情。");
       }
 
-      AppendLog($"Manifest: {result.ManifestPath}");
-      AppendLog($"Stats: total={result.TotalItems}, success={result.SuccessItems}, failed={result.FailedItems}");
+      AppendLog($"Manifest：{result.ManifestPath}");
+      AppendLog($"统计：总数={result.TotalItems}，成功={result.SuccessItems}，失败={result.FailedItems}");
       foreach (var warning in result.Warnings.Take(10))
       {
-        AppendLog($"warning: {warning}");
+        AppendLog($"警告：{warning}");
       }
     }
     catch (OperationCanceledException)
     {
-      SetIdleStatus("Cancelled", "Task cancelled by user.");
-      UpdateProgressCaption("cancelled");
-      AppendLog("Operation cancelled.");
+      SetIdleStatus("已取消", "任务已由用户取消。");
+      UpdateProgressCaption("已取消");
+      AppendLog("操作已取消。");
     }
     catch (Exception ex)
     {
-      SetErrorStatus("Failed", "Translation pipeline did not complete.", ex.Message);
-      UpdateProgressCaption("failed");
-      AppendLog($"error: {ex.Message}");
-      _logger.LogError(ex, "UI translation pipeline failed.");
+      SetErrorStatus("失败", "翻译流程未能完成。", ex.Message);
+      UpdateProgressCaption("失败");
+      AppendLog($"错误：{ex.Message}");
+      _logger.LogError(ex, "UI 翻译流程执行失败。");
     }
     finally
     {
@@ -319,33 +319,33 @@ public partial class MainWindowViewModel : ObservableObject
     StatusMessage = message;
     StatusDetail = detail;
     HasError = true;
-    ErrorMessage = $"Error detail: {errorDetail}";
+    ErrorMessage = $"错误详情：{errorDetail}";
     StatusBorderBrush = "#FCA5A5";
     StatusBackground = "#FFF1F2";
   }
 
   private void UpdateProgressCaption(string tail)
   {
-    ProgressCaption = $"Progress: {ProgressValue:F1}% ({tail})";
+    ProgressCaption = $"进度：{ProgressValue:F1}%（{tail}）";
   }
 
   private void UpdateCurrentFileCaption()
   {
     CurrentFileCaption = string.IsNullOrWhiteSpace(CurrentFile) || CurrentFile == "-"
-      ? "Current file: -"
-      : $"Current file: {CurrentFile}";
+      ? "当前文件：-"
+      : $"当前文件：{CurrentFile}";
   }
 
   private static string GetStageLabel(string stage)
   {
     return stage switch
     {
-      "detect-project" => "project detection",
-      "extract" => "text extraction",
-      "translate" => "translation",
-      "apply" => "write output",
-      "done" => "finalization",
-      _ => "processing"
+      "detect-project" => "项目识别",
+      "extract" => "文本抽取",
+      "translate" => "文本翻译",
+      "apply" => "写入输出",
+      "done" => "收尾完成",
+      _ => "处理中"
     };
   }
 
@@ -415,7 +415,7 @@ public partial class MainWindowViewModel : ObservableObject
 
   partial void OnShowAdvancedSettingsChanged(bool value)
   {
-    AdvancedToggleText = value ? "Hide Advanced Settings" : "Show Advanced Settings";
+    AdvancedToggleText = value ? "隐藏高级设置" : "显示高级设置";
   }
 
   private void NotifyCommandStates()
