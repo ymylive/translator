@@ -25,6 +25,7 @@
     <ProjectReference Include="..\EGT.Translators.DeepL\EGT.Translators.DeepL.csproj" />
     <ProjectReference Include="..\EGT.Translators.Microsoft\EGT.Translators.Microsoft.csproj" />
     <ProjectReference Include="..\EGT.Translators.Llm\EGT.Translators.Llm.csproj" />
+    <ProjectReference Include="..\EGT.Profiles.RenPy\EGT.Profiles.RenPy.csproj" />
   </ItemGroup>
 
   <ItemGroup>

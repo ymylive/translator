@@ -9,5 +9,14 @@ public sealed class TranslationRunResult
   public required int SuccessItems { get; init; }
   public required int FailedItems { get; init; }
   public required IReadOnlyList<string> Warnings { get; init; }
+  public string? QualityReportPath { get; init; }
+  public string? TranslationPreviewPath { get; init; }
+  public string? FailedItemsPath { get; init; }
+  public string? CacheFilePath { get; init; }
+  public int UniqueSourceCount { get; init; }
+  public int CacheHits { get; init; }
+  public int GlossaryHits { get; init; }
+  public int FailedUniqueSources { get; init; }
+  public int IdentityCount { get; init; }
+  public double AverageLengthRatio { get; init; }
 }
-

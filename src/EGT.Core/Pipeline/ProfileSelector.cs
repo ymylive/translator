@@ -19,7 +19,8 @@ public sealed class ProfileSelector
       throw new InvalidOperationException("No profiles are registered.");
     }
 
-    if (!string.IsNullOrWhiteSpace(options.ProfileName))
+    if (!string.IsNullOrWhiteSpace(options.ProfileName) &&
+        !string.Equals(options.ProfileName, "auto", StringComparison.OrdinalIgnoreCase))
     {
       var selected = _profiles.FirstOrDefault(x =>
         string.Equals(x.Name, options.ProfileName, StringComparison.OrdinalIgnoreCase));
@@ -39,4 +40,3 @@ public sealed class ProfileSelector
     return candidate ?? _profiles.OrderByDescending(x => x.Capability.Priority).First();
   }
 }
-

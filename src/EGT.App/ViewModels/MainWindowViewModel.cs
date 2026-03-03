@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EGT.Contracts.Models;
@@ -16,6 +17,7 @@ public partial class MainWindowViewModel : ObservableObject
   private DateTime _lastProgressLogAtUtc = DateTime.MinValue;
   private int _lastProgressLoggedProcessed = -1;
   private string _lastProgressLoggedStage = string.Empty;
+  private string _lastProgressLoggedMessage = string.Empty;
   private CancellationTokenSource? _cts;
 
   public MainWindowViewModel(
@@ -29,6 +31,9 @@ public partial class MainWindowViewModel : ObservableObject
     StartCommand = new AsyncRelayCommand(StartAsync, () => !IsBusy && !string.IsNullOrWhiteSpace(ExePath));
     CancelCommand = new RelayCommand(Cancel, () => IsBusy);
     OpenOutputCommand = new RelayCommand(OpenOutput, () => !string.IsNullOrWhiteSpace(OutputPath));
+    OpenQualityReportCommand = new RelayCommand(OpenQualityReport, () => !string.IsNullOrWhiteSpace(QualityReportPath));
+    OpenPreviewCommand = new RelayCommand(OpenPreview, () => !string.IsNullOrWhiteSpace(TranslationPreviewPath));
+    OpenFailedItemsCommand = new RelayCommand(OpenFailedItems, () => !string.IsNullOrWhiteSpace(FailedItemsPath));
     ToggleAdvancedCommand = new RelayCommand(() => ShowAdvancedSettings = !ShowAdvancedSettings);
     LoadDefaults(configuration);
     UpdateProgressCaption("waiting");
@@ -41,7 +46,7 @@ public partial class MainWindowViewModel : ObservableObject
   private string exePath = string.Empty;
 
   [ObservableProperty]
-  private string profileName = "generic-text";
+  private string profileName = "auto";
 
   [ObservableProperty]
   private string providerName = "mock";
@@ -145,9 +150,27 @@ public partial class MainWindowViewModel : ObservableObject
   [ObservableProperty]
   private string logs = string.Empty;
 
+  [ObservableProperty]
+  private string qualitySummary = "暂无质量报告";
+
+  [ObservableProperty]
+  private string qualityPreview = "执行后会显示翻译样例预览。";
+
+  [ObservableProperty]
+  private string qualityReportPath = string.Empty;
+
+  [ObservableProperty]
+  private string translationPreviewPath = string.Empty;
+
+  [ObservableProperty]
+  private string failedItemsPath = string.Empty;
+
   public IAsyncRelayCommand StartCommand { get; }
   public IRelayCommand CancelCommand { get; }
   public IRelayCommand OpenOutputCommand { get; }
+  public IRelayCommand OpenQualityReportCommand { get; }
+  public IRelayCommand OpenPreviewCommand { get; }
+  public IRelayCommand OpenFailedItemsCommand { get; }
   public IRelayCommand ToggleAdvancedCommand { get; }
 
   public void SetExePath(string path)
@@ -170,10 +193,16 @@ public partial class MainWindowViewModel : ObservableObject
     UpdateProgressCaption("初始化中");
     UpdateCurrentFileCaption();
     OutputPath = string.Empty;
+    QualitySummary = "正在执行翻译，完成后生成质量报告…";
+    QualityPreview = "正在等待翻译结果…";
+    QualityReportPath = string.Empty;
+    TranslationPreviewPath = string.Empty;
+    FailedItemsPath = string.Empty;
     _cts = new CancellationTokenSource();
     _lastProgressLogAtUtc = DateTime.MinValue;
     _lastProgressLoggedProcessed = -1;
     _lastProgressLoggedStage = string.Empty;
+    _lastProgressLoggedMessage = string.Empty;
     AppendLog("断点续传已启用：重新运行会优先命中本地翻译缓存。");
     NotifyCommandStates();
 
@@ -233,6 +262,10 @@ public partial class MainWindowViewModel : ObservableObject
     {
       var result = await _pipeline.RunAsync(ExePath, options, progress, _cts.Token);
       OutputPath = result.OutputRoot;
+      QualityReportPath = result.QualityReportPath ?? string.Empty;
+      TranslationPreviewPath = result.TranslationPreviewPath ?? string.Empty;
+      FailedItemsPath = result.FailedItemsPath ?? string.Empty;
+      UpdateQualityPanel(result);
 
       if (result.TotalItems > 0)
       {
@@ -255,6 +288,7 @@ public partial class MainWindowViewModel : ObservableObject
 
       AppendLog($"Manifest：{result.ManifestPath}");
       AppendLog($"统计：总数={result.TotalItems}，成功={result.SuccessItems}，失败={result.FailedItems}");
+      AppendLog($"质量摘要：{QualitySummary}");
       foreach (var warning in result.Warnings.Take(10))
       {
         AppendLog($"警告：{warning}");
@@ -297,6 +331,48 @@ public partial class MainWindowViewModel : ObservableObject
     Process.Start(new ProcessStartInfo
     {
       FileName = OutputPath,
+      UseShellExecute = true
+    });
+  }
+
+  private void OpenQualityReport()
+  {
+    if (!File.Exists(QualityReportPath))
+    {
+      return;
+    }
+
+    Process.Start(new ProcessStartInfo
+    {
+      FileName = QualityReportPath,
+      UseShellExecute = true
+    });
+  }
+
+  private void OpenPreview()
+  {
+    if (!File.Exists(TranslationPreviewPath))
+    {
+      return;
+    }
+
+    Process.Start(new ProcessStartInfo
+    {
+      FileName = TranslationPreviewPath,
+      UseShellExecute = true
+    });
+  }
+
+  private void OpenFailedItems()
+  {
+    if (!File.Exists(FailedItemsPath))
+    {
+      return;
+    }
+
+    Process.Start(new ProcessStartInfo
+    {
+      FileName = FailedItemsPath,
       UseShellExecute = true
     });
   }
@@ -370,33 +446,46 @@ public partial class MainWindowViewModel : ObservableObject
 
   private bool ShouldWriteProgressLog(PipelineProgress progress)
   {
+    var now = DateTime.UtcNow;
+
     if (progress.Stage != _lastProgressLoggedStage)
     {
       _lastProgressLoggedStage = progress.Stage;
       _lastProgressLoggedProcessed = progress.ProcessedItems;
-      _lastProgressLogAtUtc = DateTime.UtcNow;
+      _lastProgressLoggedMessage = progress.Message;
+      _lastProgressLogAtUtc = now;
+      return true;
+    }
+
+    if (!string.Equals(progress.Message, _lastProgressLoggedMessage, StringComparison.Ordinal))
+    {
+      _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLoggedMessage = progress.Message;
+      _lastProgressLogAtUtc = now;
       return true;
     }
 
     if (progress.ProcessedItems >= progress.TotalItems && progress.TotalItems > 0)
     {
       _lastProgressLoggedProcessed = progress.ProcessedItems;
-      _lastProgressLogAtUtc = DateTime.UtcNow;
+      _lastProgressLoggedMessage = progress.Message;
+      _lastProgressLogAtUtc = now;
       return true;
     }
 
     if (progress.ProcessedItems <= 20 && progress.ProcessedItems != _lastProgressLoggedProcessed)
     {
       _lastProgressLoggedProcessed = progress.ProcessedItems;
-      _lastProgressLogAtUtc = DateTime.UtcNow;
+      _lastProgressLoggedMessage = progress.Message;
+      _lastProgressLogAtUtc = now;
       return true;
     }
 
-    var now = DateTime.UtcNow;
     if (progress.ProcessedItems != _lastProgressLoggedProcessed &&
         now - _lastProgressLogAtUtc >= TimeSpan.FromSeconds(1))
     {
       _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLoggedMessage = progress.Message;
       _lastProgressLogAtUtc = now;
       return true;
     }
@@ -417,6 +506,47 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     return fallback;
+  }
+
+  private void UpdateQualityPanel(TranslationRunResult result)
+  {
+    QualitySummary =
+      $"唯一源文本 {result.UniqueSourceCount}｜缓存命中 {result.CacheHits}｜术语命中 {result.GlossaryHits}｜失败 {result.FailedUniqueSources}｜疑似未翻译 {result.IdentityCount}｜长度比 {result.AverageLengthRatio:F2}";
+
+    if (string.IsNullOrWhiteSpace(result.QualityReportPath) || !File.Exists(result.QualityReportPath))
+    {
+      QualityPreview = "未生成质量预览。";
+      return;
+    }
+
+    try
+    {
+      using var doc = JsonDocument.Parse(File.ReadAllText(result.QualityReportPath));
+      if (!doc.RootElement.TryGetProperty("Preview", out var previewNode) || previewNode.ValueKind != JsonValueKind.Array)
+      {
+        QualityPreview = "质量报告无预览数据。";
+        return;
+      }
+
+      var lines = new List<string>();
+      foreach (var item in previewNode.EnumerateArray().Take(8))
+      {
+        var source = item.TryGetProperty("Source", out var sourceNode) ? sourceNode.GetString() ?? string.Empty : string.Empty;
+        var translated = item.TryGetProperty("Translated", out var targetNode) ? targetNode.GetString() ?? string.Empty : string.Empty;
+        var isIdentity = item.TryGetProperty("IsIdentity", out var identityNode) &&
+                         identityNode.ValueKind == JsonValueKind.True;
+        var tag = isIdentity ? "未变更" : "已翻译";
+        lines.Add($"[{tag}] {source} => {translated}");
+      }
+
+      QualityPreview = lines.Count > 0
+        ? string.Join(Environment.NewLine, lines)
+        : "质量报告没有可展示样例。";
+    }
+    catch (Exception ex)
+    {
+      QualityPreview = $"质量报告解析失败：{ex.Message}";
+    }
   }
 
   private void LoadDefaults(IConfiguration configuration)
@@ -456,6 +586,21 @@ public partial class MainWindowViewModel : ObservableObject
     NotifyCommandStates();
   }
 
+  partial void OnQualityReportPathChanged(string value)
+  {
+    NotifyCommandStates();
+  }
+
+  partial void OnTranslationPreviewPathChanged(string value)
+  {
+    NotifyCommandStates();
+  }
+
+  partial void OnFailedItemsPathChanged(string value)
+  {
+    NotifyCommandStates();
+  }
+
   partial void OnShowAdvancedSettingsChanged(bool value)
   {
     AdvancedToggleText = value ? "隐藏高级设置" : "显示高级设置";
@@ -466,5 +611,8 @@ public partial class MainWindowViewModel : ObservableObject
     StartCommand.NotifyCanExecuteChanged();
     CancelCommand.NotifyCanExecuteChanged();
     OpenOutputCommand.NotifyCanExecuteChanged();
+    OpenQualityReportCommand.NotifyCanExecuteChanged();
+    OpenPreviewCommand.NotifyCanExecuteChanged();
+    OpenFailedItemsCommand.NotifyCanExecuteChanged();
   }
 }

@@ -1,6 +1,7 @@
 using EGT.Contracts.Models;
 using EGT.Core.Pipeline;
 using EGT.Profiles.GenericText;
+using EGT.Profiles.RenPy;
 using EGT.Translators.DeepL;
 using EGT.Translators.Llm;
 using EGT.Translators.Microsoft;
@@ -72,6 +73,7 @@ public static class Program
       .ConfigureServices((context, services) =>
       {
         services.AddEgtCore();
+        services.AddRenPyProfile();
         services.AddGenericTextProfile();
         services.AddDeepLProvider();
         services.AddMicrosoftProvider();
@@ -156,6 +158,28 @@ public static class Program
     Console.WriteLine($"Done. Manifest: {result.ManifestPath}");
     Console.WriteLine($"Output: {result.OutputRoot}");
     Console.WriteLine($"Stats: total={result.TotalItems}, success={result.SuccessItems}, failed={result.FailedItems}");
+    if (!string.IsNullOrWhiteSpace(result.CacheFilePath))
+    {
+      Console.WriteLine($"Cache: {result.CacheFilePath}");
+    }
+
+    if (!string.IsNullOrWhiteSpace(result.QualityReportPath))
+    {
+      Console.WriteLine($"Quality report: {result.QualityReportPath}");
+      Console.WriteLine(
+        $"Quality summary: unique={result.UniqueSourceCount}, cacheHits={result.CacheHits}, glossaryHits={result.GlossaryHits}, failedUnique={result.FailedUniqueSources}, identity={result.IdentityCount}, avgLenRatio={result.AverageLengthRatio:F2}");
+    }
+
+    if (!string.IsNullOrWhiteSpace(result.TranslationPreviewPath))
+    {
+      Console.WriteLine($"Preview CSV: {result.TranslationPreviewPath}");
+    }
+
+    if (!string.IsNullOrWhiteSpace(result.FailedItemsPath))
+    {
+      Console.WriteLine($"Failed items CSV: {result.FailedItemsPath}");
+    }
+
     foreach (var warning in result.Warnings.Take(10))
     {
       Console.WriteLine($"warning: {warning}");
@@ -224,7 +248,7 @@ public static class Program
 
       Run options:
         --provider <mock|deepl|microsoft|llm>    Translation provider
-        --profile <name>                         Profile name (default auto)
+        --profile <auto|generic-text|renpy>     Profile name (default auto)
         --source <lang>                          Source language (default auto)
         --target <lang>                          Target language (default zh-Hans)
         --apply                                  Apply translated files to game folder (backup required)

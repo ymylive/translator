@@ -1,5 +1,6 @@
 using Avalonia;
 using EGT.Profiles.GenericText;
+using EGT.Profiles.RenPy;
 using EGT.Core.Pipeline;
 using EGT.Translators.DeepL;
 using EGT.Translators.Llm;
@@ -39,6 +40,7 @@ internal static class Program
       .ConfigureServices((context, services) =>
       {
         services.AddEgtCore();
+        services.AddRenPyProfile();
         services.AddGenericTextProfile();
         services.AddDeepLProvider();
         services.AddMicrosoftProvider();

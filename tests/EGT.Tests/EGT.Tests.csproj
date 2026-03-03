@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\EGT.Core\EGT.Core.csproj" />
     <ProjectReference Include="..\..\src\EGT.Profiles.GenericText\EGT.Profiles.GenericText.csproj" />
     <ProjectReference Include="..\..\src\EGT.Translators.Llm\EGT.Translators.Llm.csproj" />
+    <ProjectReference Include="..\..\src\EGT.Profiles.RenPy\EGT.Profiles.RenPy.csproj" />
   </ItemGroup>
 
   <ItemGroup>

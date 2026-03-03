@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>EGT.Profiles.RenPy</AssemblyName>
+    <RootNamespace>EGT.Profiles.RenPy</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EGT.Contracts\EGT.Contracts.csproj" />
+    <ProjectReference Include="..\EGT.Core\EGT.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -16,7 +16,7 @@ For advanced users, EGT also supports logs, glossary import, cache, CLI automati
 ## MVP Features
 
 1. EXE drag-and-drop or manual path input.
-2. Generic text profile for `.json .csv .tsv .ini .xml .yaml .yml .txt .strings`.
+2. Profiles: `renpy` (Ren'Py script focused) + `generic-text` (`.json .csv .tsv .ini .xml .yaml .yml .txt .strings`), auto-selected by default.
 3. Translation providers: DeepL / Microsoft Translator / OpenAI-compatible LLM.
 4. Placeholder protection (`{0}`, `%s`, `<...>`, `\n`) and restoration.
 5. Translation cache (SQLite) and glossary CSV.
@@ -24,6 +24,7 @@ For advanced users, EGT also supports logs, glossary import, cache, CLI automati
 7. Optional in-place apply with mandatory backup to `./EGT_Backup/<timestamp>/`.
 8. Manifest generation for rollback and reproducibility.
 9. CLI + Desktop UI based on the same core pipeline.
+10. Quality report export (`quality_report.json`, `translation_preview.csv`, `failed_items.csv` when failures exist).
 
 ## Screenshots
 
@@ -90,8 +91,9 @@ dotnet test tests/EGT.Tests/EGT.Tests.csproj --filter PipelineE2ETests
 
 1. `EGT_Output/<game>/<timestamp>/` translated files + `manifest.json`.
 2. `EGT_Backup/<timestamp>/` backups used by restore (only when `--apply`).
-3. `EGT_Cache/translation_cache.db` translation cache.
-4. `logs/` app and CLI logs.
+3. `EGT_Output/<game>/<timestamp>/report/` quality report and translation preview.
+4. `%LocalAppData%/easy_game_translator/EGT_Cache/translation_cache.db` translation cache (default relative-path resolution target).
+5. `logs/` app and CLI logs.
 
 ## Engineering Docs
 

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using EGT.Contracts.Models;
 using EGT.Contracts.Profiles;
 using EGT.Contracts.Translation;
@@ -56,6 +58,11 @@ public sealed class TranslationPipeline : ITranslationPipeline
   {
     var stopwatch = Stopwatch.StartNew();
     var warnings = new List<string>();
+    var (resolvedCacheFilePath, migratedFromPath) = ResolveCacheFilePath(options.CacheFilePath);
+    if (!string.IsNullOrWhiteSpace(migratedFromPath))
+    {
+      warnings.Add($"检测到旧缓存并已迁移：{migratedFromPath} -> {resolvedCacheFilePath}");
+    }
 
     var project = _projectResolver.Resolve(exePath);
     Report(progress, "detect-project", 0, 0, null, stopwatch, $"已识别游戏项目：{project.Name}");
@@ -86,6 +93,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var translatedByEntryId = new Dictionary<string, string>(StringComparer.Ordinal);
     var translatedBySource = new Dictionary<string, string>(StringComparer.Ordinal);
     var failedSources = new HashSet<string>(StringComparer.Ordinal);
+    var failedDetails = new List<FailedTranslationItem>();
     var glossaryHitCount = 0;
     var cacheHitCount = 0;
 
@@ -108,7 +116,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
 
       var protectedResult = _placeholderProtector.Protect(source);
       var cacheKey = BuildCacheKey(provider.Name, translateOptions, protectedResult.ProtectedText, glossary?.Version);
-      var cached = await _cache.GetAsync(options.CacheFilePath, cacheKey, ct);
+      var cached = await _cache.GetAsync(resolvedCacheFilePath, cacheKey, ct);
       if (!string.IsNullOrEmpty(cached))
       {
         translatedBySource[source] = cached;
@@ -238,16 +246,29 @@ public sealed class TranslationPipeline : ITranslationPipeline
         {
           var restored = _placeholderProtector.Restore(translatedRaw, entry.Item.Placeholders);
           translatedBySource[entry.GroupKey] = restored;
-          await _cache.SetAsync(options.CacheFilePath, entry.CacheKey, restored, ct);
+          await _cache.SetAsync(resolvedCacheFilePath, entry.CacheKey, restored, ct);
         }
         else
         {
           translatedBySource[entry.GroupKey] = entry.GroupKey;
           failedSources.Add(entry.GroupKey);
+          var errorCode = "missing_item";
+          var errorMessage = "Missing translated item in provider response.";
           if (errorsMap.TryGetValue(entry.Item.Id, out var error))
           {
+            errorCode = error.Code;
+            errorMessage = error.Message;
             warnings.Add($"{entry.Item.Id}: {error.Code} - {error.Message}");
           }
+
+          failedDetails.Add(new FailedTranslationItem
+          {
+            Id = entry.Item.Id,
+            Source = entry.GroupKey,
+            Context = entry.Item.Context ?? string.Empty,
+            Code = errorCode,
+            Message = errorMessage
+          });
         }
 
         completed++;
@@ -294,6 +315,25 @@ public sealed class TranslationPipeline : ITranslationPipeline
       backupRoot,
       ct);
 
+    var qualityReport = await WriteQualityReportAsync(
+      outputRoot,
+      sourceGroups,
+      translatedBySource,
+      failedSources,
+      failedDetails,
+      cacheHitCount,
+      glossaryHitCount,
+      pending.Count,
+      ct);
+
+    warnings.Insert(0, $"质量报告：{qualityReport.JsonPath}");
+    warnings.Insert(1, $"缓存文件：{resolvedCacheFilePath}");
+    warnings.Insert(2, $"翻译预览：{qualityReport.PreviewCsvPath}");
+    if (!string.IsNullOrWhiteSpace(qualityReport.FailedItemsCsvPath))
+    {
+      warnings.Insert(3, $"失败明细：{qualityReport.FailedItemsCsvPath}");
+    }
+
     Report(progress, "done", total, total, null, stopwatch, "已完成");
 
     return new TranslationRunResult
@@ -304,7 +344,17 @@ public sealed class TranslationPipeline : ITranslationPipeline
       TotalItems = total,
       SuccessItems = total - failedEntryCount,
       FailedItems = failedEntryCount,
-      Warnings = warnings
+      Warnings = warnings,
+      QualityReportPath = qualityReport.JsonPath,
+      TranslationPreviewPath = qualityReport.PreviewCsvPath,
+      FailedItemsPath = qualityReport.FailedItemsCsvPath,
+      CacheFilePath = resolvedCacheFilePath,
+      UniqueSourceCount = qualityReport.TotalUniqueSources,
+      CacheHits = qualityReport.CacheHits,
+      GlossaryHits = qualityReport.GlossaryHits,
+      FailedUniqueSources = qualityReport.FailedUniqueSources,
+      IdentityCount = qualityReport.IdentityCount,
+      AverageLengthRatio = qualityReport.AverageLengthRatio
     };
   }
 
@@ -347,6 +397,211 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var payload =
       $"{provider}|{options.SourceLang}|{options.TargetLang}|{normalizedSource.Trim()}|{glossaryVersion ?? "none"}|{RulesVersion}";
     return Hashing.Sha256(payload);
+  }
+
+  private static (string ResolvedPath, string? MigratedFromPath) ResolveCacheFilePath(string configuredPath)
+  {
+    if (string.IsNullOrWhiteSpace(configuredPath))
+    {
+      configuredPath = "translation_cache.db";
+    }
+
+    if (Path.IsPathRooted(configuredPath))
+    {
+      return (configuredPath, null);
+    }
+
+    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    var normalized = configuredPath.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+    var resolved = Path.Combine(localAppData, "easy_game_translator", normalized);
+    var legacy = Path.GetFullPath(configuredPath);
+
+    try
+    {
+      if (File.Exists(legacy) && !File.Exists(resolved))
+      {
+        Directory.CreateDirectory(Path.GetDirectoryName(resolved)!);
+        File.Copy(legacy, resolved, overwrite: false);
+        return (resolved, legacy);
+      }
+    }
+    catch
+    {
+      // Cache migration failure should never fail the translation flow.
+    }
+
+    return (resolved, null);
+  }
+
+  private static async Task<QualityReportOutput> WriteQualityReportAsync(
+    string outputRoot,
+    IReadOnlyList<IGrouping<string, ExtractedEntry>> sourceGroups,
+    IReadOnlyDictionary<string, string> translatedBySource,
+    IReadOnlySet<string> failedSources,
+    IReadOnlyList<FailedTranslationItem> failedDetails,
+    int cacheHitCount,
+    int glossaryHitCount,
+    int pendingCount,
+    CancellationToken ct)
+  {
+    var totalUnique = sourceGroups.Count;
+    var translatedUnique = translatedBySource.Count;
+    var failedUnique = failedSources.Count;
+    var identityCount = translatedBySource.Count(x => string.Equals(x.Key, x.Value, StringComparison.Ordinal));
+
+    var comparable = translatedBySource
+      .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+      .Select(x => new
+      {
+        SourceLength = x.Key.Length,
+        TargetLength = x.Value?.Length ?? 0
+      })
+      .Where(x => x.SourceLength > 0)
+      .ToList();
+
+    var avgLengthRatio = comparable.Count == 0
+      ? 0d
+      : comparable.Average(x => (double)x.TargetLength / x.SourceLength);
+
+    var preview = sourceGroups
+      .Take(50)
+      .Select(g =>
+      {
+        var source = g.Key;
+        translatedBySource.TryGetValue(source, out var translated);
+        translated ??= source;
+        return new QualityPreviewItem
+        {
+          Source = source,
+          Translated = translated,
+          IsIdentity = string.Equals(source, translated, StringComparison.Ordinal),
+          File = g.First().RelativePath
+        };
+      })
+      .ToList();
+
+    var report = new QualityReport
+    {
+      GeneratedAtUtc = DateTimeOffset.UtcNow,
+      TotalUniqueSources = totalUnique,
+      PendingUniqueSources = pendingCount,
+      CacheHits = cacheHitCount,
+      GlossaryHits = glossaryHitCount,
+      TranslatedUniqueSources = translatedUnique,
+      FailedUniqueSources = failedUnique,
+      IdentityCount = identityCount,
+      AverageLengthRatio = Math.Round(avgLengthRatio, 4),
+      Preview = preview
+    };
+
+    var reportDir = Path.Combine(outputRoot, "report");
+    Directory.CreateDirectory(reportDir);
+    var jsonPath = Path.Combine(reportDir, "quality_report.json");
+    var previewCsvPath = Path.Combine(reportDir, "translation_preview.csv");
+    var failedCsvPath = Path.Combine(reportDir, "failed_items.csv");
+
+    var json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+    {
+      WriteIndented = true
+    });
+    await File.WriteAllTextAsync(jsonPath, json, ct);
+
+    var csv = new StringBuilder();
+    csv.AppendLine("file,is_identity,source,translated");
+    foreach (var item in preview)
+    {
+      csv
+        .Append(EscapeCsv(item.File)).Append(',')
+        .Append(item.IsIdentity ? "true" : "false").Append(',')
+        .Append(EscapeCsv(item.Source)).Append(',')
+        .Append(EscapeCsv(item.Translated)).AppendLine();
+    }
+
+    await File.WriteAllTextAsync(previewCsvPath, csv.ToString(), ct);
+
+    if (failedDetails.Count > 0)
+    {
+      var failedCsv = new StringBuilder();
+      failedCsv.AppendLine("id,code,message,context,source");
+      foreach (var failed in failedDetails)
+      {
+        failedCsv
+          .Append(EscapeCsv(failed.Id)).Append(',')
+          .Append(EscapeCsv(failed.Code)).Append(',')
+          .Append(EscapeCsv(failed.Message)).Append(',')
+          .Append(EscapeCsv(failed.Context)).Append(',')
+          .Append(EscapeCsv(failed.Source)).AppendLine();
+      }
+
+      await File.WriteAllTextAsync(failedCsvPath, failedCsv.ToString(), ct);
+    }
+    else if (File.Exists(failedCsvPath))
+    {
+      File.Delete(failedCsvPath);
+    }
+
+    return new QualityReportOutput
+    {
+      JsonPath = jsonPath,
+      PreviewCsvPath = previewCsvPath,
+      FailedItemsCsvPath = failedDetails.Count > 0 ? failedCsvPath : null,
+      TotalUniqueSources = totalUnique,
+      CacheHits = cacheHitCount,
+      GlossaryHits = glossaryHitCount,
+      FailedUniqueSources = failedUnique,
+      IdentityCount = identityCount,
+      AverageLengthRatio = Math.Round(avgLengthRatio, 4)
+    };
+  }
+
+  private static string EscapeCsv(string value)
+  {
+    var text = value.Replace("\"", "\"\"", StringComparison.Ordinal);
+    return $"\"{text}\"";
+  }
+
+  private sealed class QualityReport
+  {
+    public required DateTimeOffset GeneratedAtUtc { get; init; }
+    public required int TotalUniqueSources { get; init; }
+    public required int PendingUniqueSources { get; init; }
+    public required int CacheHits { get; init; }
+    public required int GlossaryHits { get; init; }
+    public required int TranslatedUniqueSources { get; init; }
+    public required int FailedUniqueSources { get; init; }
+    public required int IdentityCount { get; init; }
+    public required double AverageLengthRatio { get; init; }
+    public required IReadOnlyList<QualityPreviewItem> Preview { get; init; }
+  }
+
+  private sealed class QualityPreviewItem
+  {
+    public required string File { get; init; }
+    public required string Source { get; init; }
+    public required string Translated { get; init; }
+    public required bool IsIdentity { get; init; }
+  }
+
+  private sealed class FailedTranslationItem
+  {
+    public required string Id { get; init; }
+    public required string Source { get; init; }
+    public required string Context { get; init; }
+    public required string Code { get; init; }
+    public required string Message { get; init; }
+  }
+
+  private sealed class QualityReportOutput
+  {
+    public required string JsonPath { get; init; }
+    public required string PreviewCsvPath { get; init; }
+    public string? FailedItemsCsvPath { get; init; }
+    public required int TotalUniqueSources { get; init; }
+    public required int CacheHits { get; init; }
+    public required int GlossaryHits { get; init; }
+    public required int FailedUniqueSources { get; init; }
+    public required int IdentityCount { get; init; }
+    public required double AverageLengthRatio { get; init; }
   }
 
   private async Task<string?> ResolveProviderApiKeyAsync(

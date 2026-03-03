@@ -139,7 +139,7 @@
         </StackPanel>
       </ScrollViewer>
 
-      <Grid Grid.Column="1" RowDefinitions="Auto,*" MinHeight="0" Margin="12,0,0,0">
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" MinHeight="0" Margin="12,0,0,0">
         <Border Grid.Row="0"
                 Classes="card"
                 BorderBrush="{Binding StatusBorderBrush}"
@@ -172,7 +172,26 @@
           </StackPanel>
         </Border>
 
-        <Border Grid.Row="1" Classes="card" MinHeight="0" Margin="0,12,0,0">
+        <Border Grid.Row="1" Classes="card" Margin="0,12,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="翻译质量" Classes="section-title" />
+            <TextBlock Text="{Binding QualitySummary}" TextWrapping="Wrap" />
+            <TextBox Text="{Binding QualityPreview}"
+                     MinHeight="120"
+                     FontFamily="Consolas, Cascadia Mono, Menlo"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     AcceptsReturn="True"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Content="打开质量报告(JSON)" Command="{Binding OpenQualityReportCommand}" />
+              <Button Content="打开翻译预览(CSV)" Command="{Binding OpenPreviewCommand}" />
+              <Button Content="打开失败明细(CSV)" Command="{Binding OpenFailedItemsCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="card" MinHeight="0" Margin="0,12,0,0">
           <Grid RowDefinitions="Auto,*" MinHeight="0">
             <TextBlock Grid.Row="0" Text="日志（可复制）" Classes="section-title" Margin="0,0,0,8" />
             <TextBox Name="LogsTextBox"

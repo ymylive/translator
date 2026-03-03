@@ -15,11 +15,11 @@ public sealed class GenericTextProfile : IProfile
 
   private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
   {
-    ".json", ".csv", ".tsv", ".ini", ".xml", ".yaml", ".yml", ".txt", ".strings"
+    ".json", ".csv", ".tsv", ".ini", ".xml", ".yaml", ".yml", ".txt", ".strings", ".rpy", ".rpym"
   };
 
   private static readonly Regex QuotedRegex = new(
-    "\"(?<value>(?:[^\"\\\\]|\\\\.)*)\"|'(?<single>(?:[^'\\\\]|\\\\.)*)'",
+    "\"(?<value>(?:[^\"\\\\\\r\\n]|\\\\.)*)\"|'(?<single>(?:[^'\\\\\\r\\n]|\\\\.)*)'",
     RegexOptions.Compiled);
 
   private static readonly Regex KeyValueRegex = new(
@@ -27,6 +27,22 @@ public sealed class GenericTextProfile : IProfile
     RegexOptions.Compiled);
 
   private static readonly Regex LetterRegex = new(@"\p{L}", RegexOptions.Compiled);
+  private static readonly Regex IdentifierLikeRegex = new(@"^[A-Za-z0-9_\-./\\]+$", RegexOptions.Compiled);
+  private static readonly Regex ScriptDirectiveRegex = new(
+    @"^(label|jump|call|scene|show|hide|menu|image|define|init)\b",
+    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+  private static readonly HashSet<string> MetadataTokens = new(StringComparer.OrdinalIgnoreCase)
+  {
+    "id", "key", "text", "name", "value", "type", "code", "uid", "guid"
+  };
+  private static readonly HashSet<string> IgnoredFileNames = new(StringComparer.OrdinalIgnoreCase)
+  {
+    "log.txt", "output_log.txt", "player.log", "error.log", "stdout.txt", "stderr.txt"
+  };
+  private static readonly string[] IgnoredPathMarkers =
+  {
+    "/logs/", "/cache/", "/lib/", "/renpy/", "/__pycache__/", "/.git/"
+  };
 
   private readonly TextFileCodec _codec;
   private readonly ILogger<GenericTextProfile> _logger;
@@ -208,6 +224,17 @@ public sealed class GenericTextProfile : IProfile
           continue;
         }
 
+        if (IgnoredFileNames.Contains(Path.GetFileName(file)))
+        {
+          continue;
+        }
+
+        var normalizedPath = file.Replace('\\', '/');
+        if (IgnoredPathMarkers.Any(marker => normalizedPath.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+        {
+          continue;
+        }
+
         var info = new FileInfo(file);
         if (info.Length > maxBytes)
         {
@@ -251,7 +278,7 @@ public sealed class GenericTextProfile : IProfile
           !trimmed.StartsWith('#') &&
           !trimmed.StartsWith(';') &&
           !trimmed.StartsWith("//") &&
-          IsTranslatable(trimmed))
+          IsTranslatable(trimmed, $"{extension}:line"))
       {
         var leading = line.Length - line.TrimStart().Length;
         var start = lineStart + leading;
@@ -271,7 +298,7 @@ public sealed class GenericTextProfile : IProfile
     foreach (Match match in QuotedRegex.Matches(content))
     {
       var grp = match.Groups["value"].Success ? match.Groups["value"] : match.Groups["single"];
-      if (!grp.Success || !IsTranslatable(grp.Value))
+      if (!grp.Success || !IsTranslatable(grp.Value, $"{extension}:quoted"))
       {
         continue;
       }
@@ -284,7 +311,9 @@ public sealed class GenericTextProfile : IProfile
       list.Add(new Segment(grp.Index, grp.Length, grp.Value, $"{extension}:quoted"));
     }
 
-    if (!string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase))
+    if (!string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(extension, ".rpy", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(extension, ".rpym", StringComparison.OrdinalIgnoreCase))
     {
       foreach (Match match in KeyValueRegex.Matches(content))
       {
@@ -295,7 +324,7 @@ public sealed class GenericTextProfile : IProfile
         }
 
         var trimmed = value.Value.Trim();
-        if (!IsTranslatable(trimmed))
+        if (!IsTranslatable(trimmed, $"{extension}:kv"))
         {
           continue;
         }
@@ -358,7 +387,7 @@ public sealed class GenericTextProfile : IProfile
         var valueEnd = i;
         var raw = valueEnd > valueStart ? line.Substring(valueStart, valueEnd - valueStart) : string.Empty;
         var unescaped = raw.Replace("\"\"", "\"");
-        if (IsTranslatable(unescaped))
+        if (IsTranslatable(unescaped, "csv:quoted"))
         {
           output.Add(new Segment(absoluteOffset + valueStart, raw.Length, raw, "csv:quoted"));
         }
@@ -377,7 +406,7 @@ public sealed class GenericTextProfile : IProfile
 
         var raw = line.Substring(fieldStart, i - fieldStart);
         var trimmed = raw.Trim();
-        if (IsTranslatable(trimmed))
+        if (IsTranslatable(trimmed, "csv:plain"))
         {
           var leading = raw.Length - raw.TrimStart().Length;
           output.Add(new Segment(absoluteOffset + fieldStart + leading, trimmed.Length, trimmed, "csv:plain"));
@@ -406,7 +435,7 @@ public sealed class GenericTextProfile : IProfile
     return i < content.Length && content[i] == ':';
   }
 
-  private static bool IsTranslatable(string value)
+  private static bool IsTranslatable(string value, string? context = null)
   {
     if (string.IsNullOrWhiteSpace(value))
     {
@@ -425,12 +454,106 @@ public sealed class GenericTextProfile : IProfile
       return false;
     }
 
+    if (trimmed.StartsWith(".. ", StringComparison.Ordinal) || ScriptDirectiveRegex.IsMatch(trimmed))
+    {
+      return false;
+    }
+
+    if (context is not null &&
+        context.StartsWith("csv:", StringComparison.OrdinalIgnoreCase) &&
+        MetadataTokens.Contains(trimmed))
+    {
+      return false;
+    }
+
+    if (context is not null &&
+        (context.StartsWith(".rpy:", StringComparison.OrdinalIgnoreCase) ||
+         context.StartsWith(".rpym:", StringComparison.OrdinalIgnoreCase)) &&
+        (LooksLikeRenPyIdentifier(trimmed) || LooksLikeRenPyCodeLiteral(trimmed)))
+    {
+      return false;
+    }
+
     if (!LetterRegex.IsMatch(trimmed))
     {
       return false;
     }
 
+    if (LooksLikeIdentifier(trimmed))
+    {
+      return false;
+    }
+
     return true;
+  }
+
+  private static bool LooksLikeIdentifier(string value)
+  {
+    if (!IdentifierLikeRegex.IsMatch(value))
+    {
+      return false;
+    }
+
+    if (value.Any(char.IsDigit))
+    {
+      return true;
+    }
+
+    return value.Contains('_') ||
+           value.Contains('-') ||
+           value.Contains('.') ||
+           value.Contains('/') ||
+           value.Contains('\\');
+  }
+
+  private static bool LooksLikeRenPyIdentifier(string value)
+  {
+    if (string.IsNullOrEmpty(value) || value.Length > 48)
+    {
+      return false;
+    }
+
+    if (value.Any(char.IsWhiteSpace))
+    {
+      return false;
+    }
+
+    if (!value.All(ch => char.IsLetterOrDigit(ch) || ch == '_'))
+    {
+      return false;
+    }
+
+    return char.IsLower(value[0]);
+  }
+
+  private static bool LooksLikeRenPyCodeLiteral(string value)
+  {
+    if (value.Contains("persistent.", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("renpy.", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("gallery_variables", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("style_", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("gui/", StringComparison.OrdinalIgnoreCase))
+    {
+      return true;
+    }
+
+    if (value.Contains("\\'", StringComparison.Ordinal) ||
+        value.Contains('\\') ||
+        value.Contains('=') ||
+        value.Contains('#') ||
+        value.Contains("::", StringComparison.Ordinal))
+    {
+      return true;
+    }
+
+    var hasNoWhitespace = !value.Any(char.IsWhiteSpace);
+    if (hasNoWhitespace &&
+        (value.Contains('.') || value.Contains('[') || value.Contains(']') || value.Contains('(') || value.Contains(')')))
+    {
+      return true;
+    }
+
+    return false;
   }
 
   private static IReadOnlyList<Segment> RemoveOverlaps(List<Segment> segments)
