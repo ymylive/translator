@@ -97,6 +97,10 @@ public static class Program
     }
 
     var defaults = config.GetSection("PipelineDefaults");
+    var chunkSentenceCount = ReadInt(args, "--chunk-sentences")
+      ?? ReadInt(args, "--batch-size")
+      ?? int.Parse(defaults["ChunkSentenceCount"] ?? defaults["MaxItemsPerBatch"] ?? "40");
+
     var options = new PipelineOptions
     {
       ProfileName = ReadOption(args, "--profile"),
@@ -107,7 +111,7 @@ public static class Program
       ApplyInPlace = HasFlag(args, "--apply"),
       OverwriteOutput = HasFlag(args, "--overwrite-output"),
       MaxConcurrency = ReadInt(args, "--concurrency") ?? int.Parse(defaults["MaxConcurrency"] ?? "4"),
-      MaxItemsPerBatch = ReadInt(args, "--batch-size") ?? int.Parse(defaults["MaxItemsPerBatch"] ?? "40"),
+      MaxItemsPerBatch = chunkSentenceCount,
       MaxCharsPerBatch = ReadInt(args, "--batch-chars") ?? int.Parse(defaults["MaxCharsPerBatch"] ?? "8000"),
       AiBatchSize = ReadInt(args, "--ai-batch-size") ?? int.Parse(defaults["AiBatchSize"] ?? "12"),
       MaxFileSizeMb = ReadInt(args, "--max-size-mb") ?? int.Parse(defaults["MaxFileSizeMb"] ?? "50"),
@@ -237,7 +241,8 @@ public static class Program
         --fallback-model <model>                 Fallback LLM model
         --fallback-region <region>               Fallback provider region
         --concurrency <n>                        Max translation concurrency
-        --batch-size <n>                         Max items per batch sent to provider
+        --chunk-sentences <n>                    Auto chunk translatable items by sentence count
+        --batch-size <n>                         Alias of --chunk-sentences
         --batch-chars <n>                        Max chars per batch sent to provider
         --ai-batch-size <n>                      LLM items per single AI request
         --max-size-mb <n>                        Max scan file size in MB

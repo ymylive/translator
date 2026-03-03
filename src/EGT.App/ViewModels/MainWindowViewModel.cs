@@ -385,7 +385,7 @@ public partial class MainWindowViewModel : ObservableObject
     TargetLang = defaults["TargetLang"] ?? TargetLang;
     MaxConcurrency = defaults["MaxConcurrency"] ?? MaxConcurrency;
     MaxFileSizeMb = defaults["MaxFileSizeMb"] ?? MaxFileSizeMb;
-    MaxItemsPerBatch = defaults["MaxItemsPerBatch"] ?? MaxItemsPerBatch;
+    MaxItemsPerBatch = defaults["ChunkSentenceCount"] ?? defaults["MaxItemsPerBatch"] ?? MaxItemsPerBatch;
     MaxCharsPerBatch = defaults["MaxCharsPerBatch"] ?? MaxCharsPerBatch;
     AiBatchSize = defaults["AiBatchSize"] ?? AiBatchSize;
     ProviderEndpoint = defaults["ProviderEndpoint"] ?? ProviderEndpoint;
