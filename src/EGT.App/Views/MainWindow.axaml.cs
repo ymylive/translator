@@ -2,18 +2,53 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using System.ComponentModel;
 using EGT.App.ViewModels;
 
 namespace EGT.App.Views;
 
 public partial class MainWindow : Window
 {
+  private MainWindowViewModel? _boundViewModel;
+
   public MainWindow()
   {
     InitializeComponent();
     DragDrop.SetAllowDrop(DropZone, true);
     DropZone.AddHandler(DragDrop.DragOverEvent, DropZone_OnDragOver);
     DropZone.AddHandler(DragDrop.DropEvent, DropZone_OnDrop);
+    DataContextChanged += OnDataContextChanged;
+  }
+
+  private void OnDataContextChanged(object? sender, EventArgs e)
+  {
+    if (_boundViewModel is not null)
+    {
+      _boundViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+    }
+
+    _boundViewModel = DataContext as MainWindowViewModel;
+    if (_boundViewModel is not null)
+    {
+      _boundViewModel.PropertyChanged += OnViewModelPropertyChanged;
+    }
+  }
+
+  private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+  {
+    if (!string.Equals(e.PropertyName, nameof(MainWindowViewModel.Logs), StringComparison.Ordinal))
+    {
+      return;
+    }
+
+    Dispatcher.UIThread.Post(() =>
+    {
+      var text = LogsTextBox.Text ?? string.Empty;
+      LogsTextBox.CaretIndex = text.Length;
+      LogsTextBox.SelectionStart = text.Length;
+      LogsTextBox.SelectionEnd = text.Length;
+    });
   }
 
   private void DropZone_OnDragOver(object? sender, DragEventArgs e)

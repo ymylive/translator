@@ -175,7 +175,8 @@
         <Border Grid.Row="1" Classes="card" MinHeight="0" Margin="0,12,0,0">
           <Grid RowDefinitions="Auto,*" MinHeight="0">
             <TextBlock Grid.Row="0" Text="日志（可复制）" Classes="section-title" Margin="0,0,0,8" />
-            <TextBox Grid.Row="1"
+            <TextBox Name="LogsTextBox"
+                     Grid.Row="1"
                      MinHeight="160"
                      Text="{Binding Logs}"
                      FontFamily="Consolas, Cascadia Mono, Menlo"

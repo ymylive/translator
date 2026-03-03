@@ -13,6 +13,9 @@ public partial class MainWindowViewModel : ObservableObject
   private readonly ILogger<MainWindowViewModel> _logger;
   private readonly Queue<string> _logLines = new();
   private const int MaxUiLogLines = 2000;
+  private DateTime _lastProgressLogAtUtc = DateTime.MinValue;
+  private int _lastProgressLoggedProcessed = -1;
+  private string _lastProgressLoggedStage = string.Empty;
   private CancellationTokenSource? _cts;
 
   public MainWindowViewModel(
@@ -168,6 +171,10 @@ public partial class MainWindowViewModel : ObservableObject
     UpdateCurrentFileCaption();
     OutputPath = string.Empty;
     _cts = new CancellationTokenSource();
+    _lastProgressLogAtUtc = DateTime.MinValue;
+    _lastProgressLoggedProcessed = -1;
+    _lastProgressLoggedStage = string.Empty;
+    AppendLog("断点续传已启用：重新运行会优先命中本地翻译缓存。");
     NotifyCommandStates();
 
     var options = new PipelineOptions
@@ -216,9 +223,9 @@ public partial class MainWindowViewModel : ObservableObject
 
       UpdateCurrentFileCaption();
 
-      if (p.ProcessedItems % 25 == 0 || p.Stage is "done" or "extract")
+      if (ShouldWriteProgressLog(p))
       {
-        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)}，速率 {p.ItemsPerSecond:F2}/s");
+        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)}，速率 {p.ItemsPerSecond:F2}/s，{p.Message}");
       }
     });
 
@@ -359,6 +366,42 @@ public partial class MainWindowViewModel : ObservableObject
 
     _logLines.Enqueue($"[{DateTime.Now:HH:mm:ss}] {redacted}");
     Logs = string.Join(Environment.NewLine, _logLines);
+  }
+
+  private bool ShouldWriteProgressLog(PipelineProgress progress)
+  {
+    if (progress.Stage != _lastProgressLoggedStage)
+    {
+      _lastProgressLoggedStage = progress.Stage;
+      _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLogAtUtc = DateTime.UtcNow;
+      return true;
+    }
+
+    if (progress.ProcessedItems >= progress.TotalItems && progress.TotalItems > 0)
+    {
+      _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLogAtUtc = DateTime.UtcNow;
+      return true;
+    }
+
+    if (progress.ProcessedItems <= 20 && progress.ProcessedItems != _lastProgressLoggedProcessed)
+    {
+      _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLogAtUtc = DateTime.UtcNow;
+      return true;
+    }
+
+    var now = DateTime.UtcNow;
+    if (progress.ProcessedItems != _lastProgressLoggedProcessed &&
+        now - _lastProgressLogAtUtc >= TimeSpan.FromSeconds(1))
+    {
+      _lastProgressLoggedProcessed = progress.ProcessedItems;
+      _lastProgressLogAtUtc = now;
+      return true;
+    }
+
+    return false;
   }
 
   private static string RedactSensitive(string input)

@@ -86,6 +86,8 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var translatedByEntryId = new Dictionary<string, string>(StringComparer.Ordinal);
     var translatedBySource = new Dictionary<string, string>(StringComparer.Ordinal);
     var failedSources = new HashSet<string>(StringComparer.Ordinal);
+    var glossaryHitCount = 0;
+    var cacheHitCount = 0;
 
     var sourceGroups = extraction.Entries
       .GroupBy(x => x.SourceText, StringComparer.Ordinal)
@@ -100,6 +102,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
       if (glossary?.Entries.TryGetValue(source, out var glossaryHit) == true)
       {
         translatedBySource[source] = glossaryHit;
+        glossaryHitCount++;
         continue;
       }
 
@@ -109,6 +112,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
       if (!string.IsNullOrEmpty(cached))
       {
         translatedBySource[source] = cached;
+        cacheHitCount++;
         continue;
       }
 
@@ -123,13 +127,36 @@ public sealed class TranslationPipeline : ITranslationPipeline
       pending.Add((source, item, cacheKey));
     }
 
-    var completed = 0;
+    var completed = glossaryHitCount + cacheHitCount;
+    if (sourceGroups.Count > 0)
+    {
+      Report(
+        progress,
+        "translate",
+        completed,
+        sourceGroups.Count,
+        null,
+        stopwatch,
+        $"断点续传：缓存命中 {cacheHitCount}，术语命中 {glossaryHitCount}，待翻译 {pending.Count}");
+    }
+
     var maxItemsPerBatch = Math.Max(1, options.MaxItemsPerBatch);
     var maxCharsPerBatch = Math.Max(200, options.MaxCharsPerBatch);
-    foreach (var batch in SplitBatches(pending, maxItems: maxItemsPerBatch, maxChars: maxCharsPerBatch))
+    var batches = SplitBatches(pending, maxItems: maxItemsPerBatch, maxChars: maxCharsPerBatch).ToList();
+    for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
     {
+      var batch = batches[batchIndex];
       ct.ThrowIfCancellationRequested();
       var batchItems = batch.Select(x => x.Item).ToList();
+      Report(
+        progress,
+        "translate",
+        completed,
+        sourceGroups.Count,
+        batchItems[0].Context,
+        stopwatch,
+        $"请求批次 {batchIndex + 1}/{batches.Count}（{batchItems.Count} 条）");
+
       TranslateResult result;
       try
       {
@@ -195,6 +222,15 @@ public sealed class TranslationPipeline : ITranslationPipeline
           }
         }
       }
+
+      Report(
+        progress,
+        "translate",
+        completed,
+        sourceGroups.Count,
+        batchItems[0].Context,
+        stopwatch,
+        $"批次 {batchIndex + 1}/{batches.Count} 已返回，正在写入缓存");
 
       foreach (var entry in batch)
       {
