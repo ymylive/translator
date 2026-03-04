@@ -36,11 +36,14 @@ public partial class MainWindowViewModel : ObservableObject
     OpenFailedItemsCommand = new RelayCommand(OpenFailedItems, () => !string.IsNullOrWhiteSpace(FailedItemsPath));
     ToggleAdvancedCommand = new RelayCommand(() => ShowAdvancedSettings = !ShowAdvancedSettings);
     LoadDefaults(configuration);
+    ApplyAiPrioritySelectionToEditor();
     UpdateProgressCaption("waiting");
     UpdateCurrentFileCaption();
   }
 
   public string[] ProviderOptions { get; } = new[] { "mock", "deepl", "microsoft", "llm" };
+  public string[] AiPriorityOptions { get; } =
+    new[] { "manual", "openai-responses", "openai-chat", "openrouter-responses", "modelscope-chat", "none" };
 
   [ObservableProperty]
   private string exePath = string.Empty;
@@ -53,6 +56,12 @@ public partial class MainWindowViewModel : ObservableObject
 
   [ObservableProperty]
   private string fallbackProviderName = string.Empty;
+
+  [ObservableProperty]
+  private string aiPriorityPrimary = "openai-responses";
+
+  [ObservableProperty]
+  private string aiPrioritySecondary = "manual";
 
   [ObservableProperty]
   private string sourceLang = "auto";
@@ -206,11 +215,30 @@ public partial class MainWindowViewModel : ObservableObject
     AppendLog("断点续传已启用：重新运行会优先命中本地翻译缓存。");
     NotifyCommandStates();
 
+    var effectiveProviderName = ProviderName;
+    var effectiveFallbackProviderName = string.IsNullOrWhiteSpace(FallbackProviderName) ? null : FallbackProviderName;
+    var effectiveProviderEndpoint = string.IsNullOrWhiteSpace(ProviderEndpoint) ? null : ProviderEndpoint;
+    var effectiveProviderModel = string.IsNullOrWhiteSpace(ProviderModel) ? null : ProviderModel;
+    var effectiveProviderRegion = string.IsNullOrWhiteSpace(ProviderRegion) ? null : ProviderRegion;
+    var effectiveFallbackProviderEndpoint = string.IsNullOrWhiteSpace(FallbackProviderEndpoint) ? null : FallbackProviderEndpoint;
+    var effectiveFallbackProviderModel = string.IsNullOrWhiteSpace(FallbackProviderModel) ? null : FallbackProviderModel;
+    var effectiveFallbackProviderRegion = string.IsNullOrWhiteSpace(FallbackProviderRegion) ? null : FallbackProviderRegion;
+
+    ApplyAiPriorityRouting(
+      ref effectiveProviderName,
+      ref effectiveFallbackProviderName,
+      ref effectiveProviderEndpoint,
+      ref effectiveProviderModel,
+      ref effectiveProviderRegion,
+      ref effectiveFallbackProviderEndpoint,
+      ref effectiveFallbackProviderModel,
+      ref effectiveFallbackProviderRegion);
+
     var options = new PipelineOptions
     {
       ProfileName = string.IsNullOrWhiteSpace(ProfileName) ? null : ProfileName,
-      ProviderName = ProviderName,
-      FallbackProviderName = string.IsNullOrWhiteSpace(FallbackProviderName) ? null : FallbackProviderName,
+      ProviderName = effectiveProviderName,
+      FallbackProviderName = effectiveFallbackProviderName,
       SourceLang = SourceLang,
       TargetLang = TargetLang,
       ApplyInPlace = ApplyInPlace,
@@ -221,13 +249,13 @@ public partial class MainWindowViewModel : ObservableObject
       MaxFileSizeMb = ParsePositiveInt(MaxFileSizeMb, 50),
       GlossaryCsvPath = string.IsNullOrWhiteSpace(GlossaryPath) ? null : GlossaryPath,
       ProviderApiKey = string.IsNullOrWhiteSpace(ProviderApiKey) ? null : ProviderApiKey,
-      ProviderEndpoint = string.IsNullOrWhiteSpace(ProviderEndpoint) ? null : ProviderEndpoint,
-      ProviderModel = string.IsNullOrWhiteSpace(ProviderModel) ? null : ProviderModel,
-      ProviderRegion = string.IsNullOrWhiteSpace(ProviderRegion) ? null : ProviderRegion,
+      ProviderEndpoint = effectiveProviderEndpoint,
+      ProviderModel = effectiveProviderModel,
+      ProviderRegion = effectiveProviderRegion,
       FallbackProviderApiKey = string.IsNullOrWhiteSpace(FallbackProviderApiKey) ? null : FallbackProviderApiKey,
-      FallbackProviderEndpoint = string.IsNullOrWhiteSpace(FallbackProviderEndpoint) ? null : FallbackProviderEndpoint,
-      FallbackProviderModel = string.IsNullOrWhiteSpace(FallbackProviderModel) ? null : FallbackProviderModel,
-      FallbackProviderRegion = string.IsNullOrWhiteSpace(FallbackProviderRegion) ? null : FallbackProviderRegion
+      FallbackProviderEndpoint = effectiveFallbackProviderEndpoint,
+      FallbackProviderModel = effectiveFallbackProviderModel,
+      FallbackProviderRegion = effectiveFallbackProviderRegion
     };
 
     var progress = new Progress<PipelineProgress>(p =>
@@ -508,6 +536,110 @@ public partial class MainWindowViewModel : ObservableObject
     return fallback;
   }
 
+  private void ApplyAiPriorityRouting(
+    ref string providerName,
+    ref string? fallbackProviderName,
+    ref string? providerEndpoint,
+    ref string? providerModel,
+    ref string? providerRegion,
+    ref string? fallbackProviderEndpoint,
+    ref string? fallbackProviderModel,
+    ref string? fallbackProviderRegion)
+  {
+    if (!string.Equals(providerName, "llm", StringComparison.OrdinalIgnoreCase))
+    {
+      return;
+    }
+
+    if (TryResolveAiPreset(AiPriorityPrimary, out var primary))
+    {
+      providerEndpoint = primary.Endpoint;
+      providerModel = primary.Model;
+      providerRegion = null;
+      AppendLog($"AI优先级1：{AiPriorityPrimary} -> {primary.Endpoint} / {primary.Model}");
+    }
+
+    if (TryResolveAiPreset(AiPrioritySecondary, out var secondary))
+    {
+      fallbackProviderName = "llm";
+      fallbackProviderEndpoint = secondary.Endpoint;
+      fallbackProviderModel = secondary.Model;
+      fallbackProviderRegion = null;
+      AppendLog($"AI优先级2：{AiPrioritySecondary} -> {secondary.Endpoint} / {secondary.Model}");
+      return;
+    }
+
+    if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
+    {
+      fallbackProviderName = null;
+      fallbackProviderEndpoint = null;
+      fallbackProviderModel = null;
+      fallbackProviderRegion = null;
+    }
+  }
+
+  private void ApplyAiPrioritySelectionToEditor()
+  {
+    if (!string.Equals(ProviderName, "llm", StringComparison.OrdinalIgnoreCase))
+    {
+      return;
+    }
+
+    if (TryResolveAiPreset(AiPriorityPrimary, out var primary))
+    {
+      ProviderEndpoint = primary.Endpoint;
+      ProviderModel = primary.Model;
+      ProviderRegion = string.Empty;
+    }
+
+    if (TryResolveAiPreset(AiPrioritySecondary, out var secondary))
+    {
+      FallbackProviderName = "llm";
+      FallbackProviderEndpoint = secondary.Endpoint;
+      FallbackProviderModel = secondary.Model;
+      FallbackProviderRegion = string.Empty;
+      return;
+    }
+
+    if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
+    {
+      FallbackProviderName = string.Empty;
+      FallbackProviderEndpoint = string.Empty;
+      FallbackProviderModel = string.Empty;
+      FallbackProviderRegion = string.Empty;
+    }
+  }
+
+  private static bool TryResolveAiPreset(string key, out AiPreset preset)
+  {
+    if (string.IsNullOrWhiteSpace(key))
+    {
+      preset = default;
+      return false;
+    }
+
+    switch (key.Trim().ToLowerInvariant())
+    {
+      case "openai-responses":
+        preset = new AiPreset("https://gmn.chuangzuoli.com/v1/responses", "gpt-5.2");
+        return true;
+      case "openai-chat":
+        preset = new AiPreset("https://api.openai.com/v1/chat/completions", "gpt-4o-mini");
+        return true;
+      case "openrouter-responses":
+        preset = new AiPreset("https://openrouter.ai/api/v1/responses", "z-ai/glm-4.5-air:free");
+        return true;
+      case "modelscope-chat":
+        preset = new AiPreset("https://api-inference.modelscope.cn/v1/chat/completions", "ZhipuAI/GLM-5");
+        return true;
+      default:
+        preset = default;
+        return false;
+    }
+  }
+
+  private readonly record struct AiPreset(string Endpoint, string Model);
+
   private void UpdateQualityPanel(TranslationRunResult result)
   {
     QualitySummary =
@@ -554,6 +686,8 @@ public partial class MainWindowViewModel : ObservableObject
     var defaults = configuration.GetSection("PipelineDefaults");
     ProviderName = defaults["ProviderName"] ?? ProviderName;
     FallbackProviderName = defaults["FallbackProviderName"] ?? FallbackProviderName;
+    AiPriorityPrimary = defaults["AiPriorityPrimary"] ?? AiPriorityPrimary;
+    AiPrioritySecondary = defaults["AiPrioritySecondary"] ?? AiPrioritySecondary;
     SourceLang = defaults["SourceLang"] ?? SourceLang;
     TargetLang = defaults["TargetLang"] ?? TargetLang;
     MaxConcurrency = defaults["MaxConcurrency"] ?? MaxConcurrency;
@@ -584,6 +718,24 @@ public partial class MainWindowViewModel : ObservableObject
   partial void OnOutputPathChanged(string value)
   {
     NotifyCommandStates();
+  }
+
+  partial void OnProviderNameChanged(string value)
+  {
+    if (string.Equals(value, "llm", StringComparison.OrdinalIgnoreCase))
+    {
+      ApplyAiPrioritySelectionToEditor();
+    }
+  }
+
+  partial void OnAiPriorityPrimaryChanged(string value)
+  {
+    ApplyAiPrioritySelectionToEditor();
+  }
+
+  partial void OnAiPrioritySecondaryChanged(string value)
+  {
+    ApplyAiPrioritySelectionToEditor();
   }
 
   partial void OnQualityReportPathChanged(string value)

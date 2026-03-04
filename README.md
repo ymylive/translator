@@ -18,13 +18,14 @@ For advanced users, EGT also supports logs, glossary import, cache, CLI automati
 1. EXE drag-and-drop or manual path input.
 2. Profiles: `renpy` (Ren'Py script focused) + `generic-text` (`.json .csv .tsv .ini .xml .yaml .yml .txt .strings`), auto-selected by default.
 3. Translation providers: DeepL / Microsoft Translator / OpenAI-compatible LLM.
-4. Placeholder protection (`{0}`, `%s`, `<...>`, `\n`) and restoration.
-5. Translation cache (SQLite) and glossary CSV.
-6. Output to `./EGT_Output/<game>/<timestamp>/` by default.
-7. Optional in-place apply with mandatory backup to `./EGT_Backup/<timestamp>/`.
-8. Manifest generation for rollback and reproducibility.
-9. CLI + Desktop UI based on the same core pipeline.
-10. Quality report export (`quality_report.json`, `translation_preview.csv`, `failed_items.csv` when failures exist).
+4. GUI AI priority routing: configurable priority-1/priority-2 presets (`openai-responses`, `openrouter-responses`, `modelscope-chat`, etc.).
+5. Placeholder protection (`{0}`, `%s`, `<...>`, `\n`) and restoration.
+6. Translation cache (SQLite) and glossary CSV.
+7. Output to `./EGT_Output/<game>/<timestamp>/` by default.
+8. Optional in-place apply with mandatory backup to `./EGT_Backup/<timestamp>/`.
+9. Manifest generation for rollback and reproducibility.
+10. CLI + Desktop UI based on the same core pipeline.
+11. Quality report export (`quality_report.json`, `translation_preview.csv`, `failed_items.csv` when failures exist).
 
 ## Screenshots
 

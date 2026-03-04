@@ -83,7 +83,7 @@
                          Text="用于术语表、私有接口、分块和性能调优。"
                          TextWrapping="Wrap" />
               <Grid IsVisible="{Binding ShowAdvancedSettings}"
-                    RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                    RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                     ColumnDefinitions="130,*">
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="术语表 CSV" />
                 <TextBox Grid.Row="0" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding GlossaryPath}" />
@@ -100,35 +100,51 @@
                 <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="区域" />
                 <TextBox Grid.Row="4" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding ProviderRegion}" />
 
-                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退引擎" />
-                <TextBox Grid.Row="5" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderName}" />
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI 优先级1" />
+                <ComboBox Grid.Row="5"
+                          Grid.Column="1"
+                          Classes="form-field"
+                          Margin="0,0,0,8"
+                          ItemsSource="{Binding AiPriorityOptions}"
+                          SelectedItem="{Binding AiPriorityPrimary}" />
 
-                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 API Key" />
-                <TextBox Grid.Row="6" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderApiKey}" />
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI 优先级2" />
+                <ComboBox Grid.Row="6"
+                          Grid.Column="1"
+                          Classes="form-field"
+                          Margin="0,0,0,8"
+                          ItemsSource="{Binding AiPriorityOptions}"
+                          SelectedItem="{Binding AiPrioritySecondary}" />
 
-                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 Base URL" />
-                <TextBox Grid.Row="7" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderEndpoint}" />
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退引擎" />
+                <TextBox Grid.Row="7" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderName}" />
 
-                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退模型" />
-                <TextBox Grid.Row="8" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderModel}" />
+                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 API Key" />
+                <TextBox Grid.Row="8" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderApiKey}" />
 
-                <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退区域" />
-                <TextBox Grid.Row="9" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderRegion}" />
+                <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退 Base URL" />
+                <TextBox Grid.Row="9" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderEndpoint}" />
 
-                <TextBlock Grid.Row="10" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="并发数" />
-                <TextBox Grid.Row="10" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding MaxConcurrency}" />
+                <TextBlock Grid.Row="10" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退模型" />
+                <TextBox Grid.Row="10" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderModel}" />
 
-                <TextBlock Grid.Row="11" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI 单次句数" />
-                <TextBox Grid.Row="11" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding AiBatchSize}" />
+                <TextBlock Grid.Row="11" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="回退区域" />
+                <TextBox Grid.Row="11" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding FallbackProviderRegion}" />
 
-                <TextBlock Grid.Row="12" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="分块句数 / 字符上限 / 文件MB上限" />
-                <StackPanel Grid.Row="12" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                <TextBlock Grid.Row="12" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="并发数" />
+                <TextBox Grid.Row="12" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding MaxConcurrency}" />
+
+                <TextBlock Grid.Row="13" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="AI 单次句数" />
+                <TextBox Grid.Row="13" Grid.Column="1" Classes="form-field" Margin="0,0,0,8" Text="{Binding AiBatchSize}" />
+
+                <TextBlock Grid.Row="14" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,8" Text="分块句数 / 字符上限 / 文件MB上限" />
+                <StackPanel Grid.Row="14" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
                   <TextBox Width="120" Classes="form-field" Text="{Binding MaxItemsPerBatch}" />
                   <TextBox Width="160" Classes="form-field" Text="{Binding MaxCharsPerBatch}" />
                   <TextBox Width="120" Classes="form-field" Text="{Binding MaxFileSizeMb}" />
                 </StackPanel>
 
-                <CheckBox Grid.Row="13"
+                <CheckBox Grid.Row="15"
                           Grid.Column="1"
                           Classes="form-field"
                           IsChecked="{Binding ApplyInPlace}"
