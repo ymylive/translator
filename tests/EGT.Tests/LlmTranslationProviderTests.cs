@@ -37,10 +37,42 @@ public sealed class LlmTranslationProviderTests
 
     var request = handler.Requests.Single();
     request.Url.Should().EndWith("/v1/responses");
+    request.ContentType.Should().Be("application/json");
     using var requestJson = JsonDocument.Parse(request.Body);
-    requestJson.RootElement.TryGetProperty("instructions", out _).Should().BeTrue();
-    requestJson.RootElement.TryGetProperty("input", out _).Should().BeTrue();
+    requestJson.RootElement.TryGetProperty("instructions", out _).Should().BeFalse();
+    requestJson.RootElement.TryGetProperty("input", out var inputNode).Should().BeTrue();
     requestJson.RootElement.TryGetProperty("messages", out _).Should().BeFalse();
+    inputNode.ValueKind.Should().Be(JsonValueKind.Array);
+    inputNode.GetArrayLength().Should().Be(2);
+    inputNode[0].GetProperty("role").GetString().Should().Be("system");
+    inputNode[1].GetProperty("role").GetString().Should().Be("user");
+  }
+
+  [Fact]
+  public async Task TranslateBatchAsync_ShouldOmitTemperature_ForGmnResponsesEndpoint()
+  {
+    var handler = new SequenceHttpMessageHandler(
+      CreateJsonResponse("""{"output_text":"{\"items\":[{\"id\":\"1\",\"text\":\"你好\"}]}"}"""));
+    var sut = CreateSut(handler);
+    var options = CreateOptions("https://gmn.chuangzuoli.com/v1/responses");
+
+    var result = await sut.TranslateBatchAsync(
+      new[]
+      {
+        new TranslateItem
+        {
+          Id = "1",
+          Source = "hello"
+        }
+      },
+      options,
+      CancellationToken.None);
+
+    result.Errors.Should().BeEmpty();
+    result.Items.Should().ContainSingle(x => x.Id == "1");
+
+    using var requestJson = JsonDocument.Parse(handler.Requests.Single().Body);
+    requestJson.RootElement.TryGetProperty("temperature", out _).Should().BeFalse();
   }
 
   [Fact]
@@ -93,6 +125,38 @@ public sealed class LlmTranslationProviderTests
     result.Items.Should().ContainSingle(x => x.Id == "X" && x.TranslatedText == "单条译文");
     handler.Requests.Should().HaveCount(2);
     handler.Requests.All(x => x.Body.Contains("\"input\"", StringComparison.Ordinal)).Should().BeTrue();
+  }
+
+  [Fact]
+  public async Task TranslateBatchAsync_ShouldRetryMissingItems_WithSingleMode()
+  {
+    var handler = new SequenceHttpMessageHandler(
+      CreateJsonResponse("""{"output_text":"{\"items\":[{\"id\":\"1\",\"text\":\"甲\"}]}"}"""),
+      CreateJsonResponse("""{"output_text":"乙"}"""));
+    var sut = CreateSut(handler);
+    var options = CreateOptions("https://api.openai.com/v1/responses");
+
+    var result = await sut.TranslateBatchAsync(
+      new[]
+      {
+        new TranslateItem
+        {
+          Id = "1",
+          Source = "first"
+        },
+        new TranslateItem
+        {
+          Id = "2",
+          Source = "second"
+        }
+      },
+      options,
+      CancellationToken.None);
+
+    result.Errors.Should().BeEmpty();
+    result.Items.Should().Contain(x => x.Id == "1" && x.TranslatedText == "甲");
+    result.Items.Should().Contain(x => x.Id == "2" && x.TranslatedText == "乙");
+    handler.Requests.Should().HaveCount(2);
   }
 
   private static TranslateOptions CreateOptions(string endpoint) => new()
@@ -150,7 +214,8 @@ public sealed class LlmTranslationProviderTests
 
       Requests.Add(new RequestSnapshot(
         request.RequestUri?.ToString() ?? string.Empty,
-        body));
+        body,
+        request.Content?.Headers.ContentType?.ToString()));
 
       if (_responses.Count == 0)
       {
@@ -161,5 +226,5 @@ public sealed class LlmTranslationProviderTests
     }
   }
 
-  private sealed record RequestSnapshot(string Url, string Body);
+  private sealed record RequestSnapshot(string Url, string Body, string? ContentType);
 }

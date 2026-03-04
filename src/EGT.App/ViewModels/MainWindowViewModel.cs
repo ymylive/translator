@@ -1,8 +1,10 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EGT.Contracts.Models;
+using EGT.Core.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -11,6 +13,7 @@ namespace EGT.App.ViewModels;
 public partial class MainWindowViewModel : ObservableObject
 {
   private readonly ITranslationPipeline _pipeline;
+  private readonly ISecretStore _secretStore;
   private readonly ILogger<MainWindowViewModel> _logger;
   private readonly Queue<string> _logLines = new();
   private const int MaxUiLogLines = 2000;
@@ -18,14 +21,17 @@ public partial class MainWindowViewModel : ObservableObject
   private int _lastProgressLoggedProcessed = -1;
   private string _lastProgressLoggedStage = string.Empty;
   private string _lastProgressLoggedMessage = string.Empty;
+  private readonly string _localSettingsPath;
   private CancellationTokenSource? _cts;
 
   public MainWindowViewModel(
     ITranslationPipeline pipeline,
+    ISecretStore secretStore,
     ILogger<MainWindowViewModel> logger,
     IConfiguration configuration)
   {
     _pipeline = pipeline;
+    _secretStore = secretStore;
     _logger = logger;
 
     StartCommand = new AsyncRelayCommand(StartAsync, () => !IsBusy && !string.IsNullOrWhiteSpace(ExePath));
@@ -34,7 +40,9 @@ public partial class MainWindowViewModel : ObservableObject
     OpenQualityReportCommand = new RelayCommand(OpenQualityReport, () => !string.IsNullOrWhiteSpace(QualityReportPath));
     OpenPreviewCommand = new RelayCommand(OpenPreview, () => !string.IsNullOrWhiteSpace(TranslationPreviewPath));
     OpenFailedItemsCommand = new RelayCommand(OpenFailedItems, () => !string.IsNullOrWhiteSpace(FailedItemsPath));
+    SaveSettingsCommand = new RelayCommand(() => SaveSettings().GetAwaiter().GetResult(), () => !IsBusy);
     ToggleAdvancedCommand = new RelayCommand(() => ShowAdvancedSettings = !ShowAdvancedSettings);
+    _localSettingsPath = ResolveLocalSettingsPath();
     LoadDefaults(configuration);
     ApplyAiPrioritySelectionToEditor();
     UpdateProgressCaption("waiting");
@@ -62,6 +70,9 @@ public partial class MainWindowViewModel : ObservableObject
 
   [ObservableProperty]
   private string aiPrioritySecondary = "manual";
+
+  [ObservableProperty]
+  private string aiPriorityTertiary = "none";
 
   [ObservableProperty]
   private string sourceLang = "auto";
@@ -97,6 +108,21 @@ public partial class MainWindowViewModel : ObservableObject
   private string fallbackProviderRegion = string.Empty;
 
   [ObservableProperty]
+  private string secondFallbackProviderName = string.Empty;
+
+  [ObservableProperty]
+  private string secondFallbackProviderApiKey = string.Empty;
+
+  [ObservableProperty]
+  private string secondFallbackProviderEndpoint = string.Empty;
+
+  [ObservableProperty]
+  private string secondFallbackProviderModel = string.Empty;
+
+  [ObservableProperty]
+  private string secondFallbackProviderRegion = string.Empty;
+
+  [ObservableProperty]
   private bool applyInPlace;
 
   [ObservableProperty]
@@ -121,16 +147,16 @@ public partial class MainWindowViewModel : ObservableObject
   private bool showAdvancedSettings;
 
   [ObservableProperty]
-  private string advancedToggleText = "显示高级设置";
+  private string advancedToggleText = "Show advanced settings";
 
   [ObservableProperty]
   private double progressValue;
 
   [ObservableProperty]
-  private string statusMessage = "就绪";
+  private string statusMessage = "Ready";
 
   [ObservableProperty]
-  private string statusDetail = "请选择游戏 EXE，然后点击开始。";
+  private string statusDetail = "Choose a game EXE, then click Start.";
 
   [ObservableProperty]
   private bool hasError;
@@ -148,10 +174,10 @@ public partial class MainWindowViewModel : ObservableObject
   private string currentFile = "-";
 
   [ObservableProperty]
-  private string progressCaption = "进度：0.0%（等待中）";
+  private string progressCaption = "Progress: 0.0% (waiting)";
 
   [ObservableProperty]
-  private string currentFileCaption = "当前文件：-";
+  private string currentFileCaption = "Current file: -";
 
   [ObservableProperty]
   private string outputPath = string.Empty;
@@ -160,10 +186,10 @@ public partial class MainWindowViewModel : ObservableObject
   private string logs = string.Empty;
 
   [ObservableProperty]
-  private string qualitySummary = "暂无质量报告";
+  private string qualitySummary = "No quality report yet.";
 
   [ObservableProperty]
-  private string qualityPreview = "执行后会显示翻译样例预览。";
+  private string qualityPreview = "Preview will appear after translation.";
 
   [ObservableProperty]
   private string qualityReportPath = string.Empty;
@@ -180,12 +206,13 @@ public partial class MainWindowViewModel : ObservableObject
   public IRelayCommand OpenQualityReportCommand { get; }
   public IRelayCommand OpenPreviewCommand { get; }
   public IRelayCommand OpenFailedItemsCommand { get; }
+  public IRelayCommand SaveSettingsCommand { get; }
   public IRelayCommand ToggleAdvancedCommand { get; }
 
   public void SetExePath(string path)
   {
     ExePath = path;
-    AppendLog($"已选择 EXE：{path}");
+    AppendLog($"Selected EXE: {path}");
   }
 
   private async Task StartAsync()
@@ -198,12 +225,12 @@ public partial class MainWindowViewModel : ObservableObject
     IsBusy = true;
     ProgressValue = 0;
     CurrentFile = "-";
-    SetRunningStatus("准备中", "正在初始化翻译任务。");
-    UpdateProgressCaption("初始化中");
+    SetRunningStatus("Preparing", "Initializing translation task...");
+    UpdateProgressCaption("Initializing");
     UpdateCurrentFileCaption();
     OutputPath = string.Empty;
-    QualitySummary = "正在执行翻译，完成后生成质量报告…";
-    QualityPreview = "正在等待翻译结果…";
+    QualitySummary = "Running translation, quality report will be generated on completion.";
+    QualityPreview = "Waiting for translation results...";
     QualityReportPath = string.Empty;
     TranslationPreviewPath = string.Empty;
     FailedItemsPath = string.Empty;
@@ -212,33 +239,42 @@ public partial class MainWindowViewModel : ObservableObject
     _lastProgressLoggedProcessed = -1;
     _lastProgressLoggedStage = string.Empty;
     _lastProgressLoggedMessage = string.Empty;
-    AppendLog("断点续传已启用：重新运行会优先命中本地翻译缓存。");
+    AppendLog("Resume mode enabled: cache entries are reused first.");
     NotifyCommandStates();
 
     var effectiveProviderName = ProviderName;
     var effectiveFallbackProviderName = string.IsNullOrWhiteSpace(FallbackProviderName) ? null : FallbackProviderName;
+    var effectiveSecondFallbackProviderName = string.IsNullOrWhiteSpace(SecondFallbackProviderName) ? null : SecondFallbackProviderName;
     var effectiveProviderEndpoint = string.IsNullOrWhiteSpace(ProviderEndpoint) ? null : ProviderEndpoint;
     var effectiveProviderModel = string.IsNullOrWhiteSpace(ProviderModel) ? null : ProviderModel;
     var effectiveProviderRegion = string.IsNullOrWhiteSpace(ProviderRegion) ? null : ProviderRegion;
     var effectiveFallbackProviderEndpoint = string.IsNullOrWhiteSpace(FallbackProviderEndpoint) ? null : FallbackProviderEndpoint;
     var effectiveFallbackProviderModel = string.IsNullOrWhiteSpace(FallbackProviderModel) ? null : FallbackProviderModel;
     var effectiveFallbackProviderRegion = string.IsNullOrWhiteSpace(FallbackProviderRegion) ? null : FallbackProviderRegion;
+    var effectiveSecondFallbackProviderEndpoint = string.IsNullOrWhiteSpace(SecondFallbackProviderEndpoint) ? null : SecondFallbackProviderEndpoint;
+    var effectiveSecondFallbackProviderModel = string.IsNullOrWhiteSpace(SecondFallbackProviderModel) ? null : SecondFallbackProviderModel;
+    var effectiveSecondFallbackProviderRegion = string.IsNullOrWhiteSpace(SecondFallbackProviderRegion) ? null : SecondFallbackProviderRegion;
 
     ApplyAiPriorityRouting(
       ref effectiveProviderName,
       ref effectiveFallbackProviderName,
+      ref effectiveSecondFallbackProviderName,
       ref effectiveProviderEndpoint,
       ref effectiveProviderModel,
       ref effectiveProviderRegion,
       ref effectiveFallbackProviderEndpoint,
       ref effectiveFallbackProviderModel,
-      ref effectiveFallbackProviderRegion);
+      ref effectiveFallbackProviderRegion,
+      ref effectiveSecondFallbackProviderEndpoint,
+      ref effectiveSecondFallbackProviderModel,
+      ref effectiveSecondFallbackProviderRegion);
 
     var options = new PipelineOptions
     {
       ProfileName = string.IsNullOrWhiteSpace(ProfileName) ? null : ProfileName,
       ProviderName = effectiveProviderName,
       FallbackProviderName = effectiveFallbackProviderName,
+      SecondFallbackProviderName = effectiveSecondFallbackProviderName,
       SourceLang = SourceLang,
       TargetLang = TargetLang,
       ApplyInPlace = ApplyInPlace,
@@ -255,22 +291,26 @@ public partial class MainWindowViewModel : ObservableObject
       FallbackProviderApiKey = string.IsNullOrWhiteSpace(FallbackProviderApiKey) ? null : FallbackProviderApiKey,
       FallbackProviderEndpoint = effectiveFallbackProviderEndpoint,
       FallbackProviderModel = effectiveFallbackProviderModel,
-      FallbackProviderRegion = effectiveFallbackProviderRegion
+      FallbackProviderRegion = effectiveFallbackProviderRegion,
+      SecondFallbackProviderApiKey = string.IsNullOrWhiteSpace(SecondFallbackProviderApiKey) ? null : SecondFallbackProviderApiKey,
+      SecondFallbackProviderEndpoint = effectiveSecondFallbackProviderEndpoint,
+      SecondFallbackProviderModel = effectiveSecondFallbackProviderModel,
+      SecondFallbackProviderRegion = effectiveSecondFallbackProviderRegion
     };
 
     var progress = new Progress<PipelineProgress>(p =>
     {
       var stageLabel = GetStageLabel(p.Stage);
-      SetRunningStatus($"执行中：{stageLabel}", p.Message);
+      SetRunningStatus($"Running: {stageLabel}", p.Message);
 
       if (p.TotalItems > 0)
       {
         ProgressValue = p.ProcessedItems * 100d / p.TotalItems;
-        UpdateProgressCaption($"已处理 {p.ProcessedItems}/{p.TotalItems}");
+        UpdateProgressCaption($"Processed {p.ProcessedItems}/{p.TotalItems}");
       }
       else
       {
-        UpdateProgressCaption("正在统计工作量");
+        UpdateProgressCaption("Counting workload");
       }
 
       if (!string.IsNullOrWhiteSpace(p.CurrentFile))
@@ -282,7 +322,7 @@ public partial class MainWindowViewModel : ObservableObject
 
       if (ShouldWriteProgressLog(p))
       {
-        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)}，速率 {p.ItemsPerSecond:F2}/s，{p.Message}");
+        AppendLog($"[{p.Stage}] {p.ProcessedItems}/{Math.Max(1, p.TotalItems)}, {p.ItemsPerSecond:F2}/s, {p.Message}");
       }
     });
 
@@ -298,42 +338,42 @@ public partial class MainWindowViewModel : ObservableObject
       if (result.TotalItems > 0)
       {
         ProgressValue = 100;
-        UpdateProgressCaption($"已处理 {result.TotalItems}/{result.TotalItems}");
+        UpdateProgressCaption($"Processed {result.TotalItems}/{result.TotalItems}");
       }
       else
       {
-        UpdateProgressCaption("未发现可翻译条目");
+        UpdateProgressCaption("No translatable entries found");
       }
 
       if (result.Success)
       {
-        SetIdleStatus("已完成", "翻译已完成，可打开输出目录查看。");
+        SetIdleStatus("Completed", "Translation finished. You can open the output folder.");
       }
       else
       {
-        SetIdleStatus("完成（有警告）", "部分条目失败，请查看日志详情。");
+        SetIdleStatus("Completed with warnings", "Some entries failed. Check logs for details.");
       }
 
-      AppendLog($"Manifest：{result.ManifestPath}");
-      AppendLog($"统计：总数={result.TotalItems}，成功={result.SuccessItems}，失败={result.FailedItems}");
-      AppendLog($"质量摘要：{QualitySummary}");
+      AppendLog($"Manifest: {result.ManifestPath}");
+      AppendLog($"Stats: total={result.TotalItems}, success={result.SuccessItems}, failed={result.FailedItems}");
+      AppendLog($"Quality summary: {QualitySummary}");
       foreach (var warning in result.Warnings.Take(10))
       {
-        AppendLog($"警告：{warning}");
+        AppendLog($"Warning: {warning}");
       }
     }
     catch (OperationCanceledException)
     {
-      SetIdleStatus("已取消", "任务已由用户取消。");
-      UpdateProgressCaption("已取消");
-      AppendLog("操作已取消。");
+      SetIdleStatus("Cancelled", "Task cancelled by user.");
+      UpdateProgressCaption("Cancelled");
+      AppendLog("Operation cancelled.");
     }
     catch (Exception ex)
     {
-      SetErrorStatus("失败", "翻译流程未能完成。", ex.Message);
-      UpdateProgressCaption("失败");
-      AppendLog($"错误：{ex.Message}");
-      _logger.LogError(ex, "UI 翻译流程执行失败。");
+      SetErrorStatus("Failed", "Translation pipeline could not complete.", ex.Message);
+      UpdateProgressCaption("Failed");
+      AppendLog($"Error: {ex.Message}");
+      _logger.LogError(ex, "UI translation pipeline failed.");
     }
     finally
     {
@@ -405,6 +445,114 @@ public partial class MainWindowViewModel : ObservableObject
     });
   }
 
+  private async Task SaveSettings()
+  {
+    try
+    {
+      JsonObject root;
+      if (File.Exists(_localSettingsPath))
+      {
+        var existing = File.ReadAllText(_localSettingsPath);
+        root = JsonNode.Parse(existing) as JsonObject ?? new JsonObject();
+      }
+      else
+      {
+        root = new JsonObject();
+      }
+
+      var pipelineDefaults = root["PipelineDefaults"] as JsonObject ?? new JsonObject();
+      var maxItems = ParsePositiveInt(MaxItemsPerBatch, 40);
+
+      pipelineDefaults["ProviderName"] = ProviderName;
+      pipelineDefaults["FallbackProviderName"] = FallbackProviderName;
+      pipelineDefaults["SecondFallbackProviderName"] = SecondFallbackProviderName;
+      pipelineDefaults["AiPriorityPrimary"] = AiPriorityPrimary;
+      pipelineDefaults["AiPrioritySecondary"] = AiPrioritySecondary;
+      pipelineDefaults["AiPriorityTertiary"] = AiPriorityTertiary;
+      pipelineDefaults["SourceLang"] = SourceLang;
+      pipelineDefaults["TargetLang"] = TargetLang;
+      pipelineDefaults["MaxConcurrency"] = ParsePositiveInt(MaxConcurrency, 4);
+      pipelineDefaults["ChunkSentenceCount"] = maxItems;
+      pipelineDefaults["MaxItemsPerBatch"] = maxItems;
+      pipelineDefaults["MaxCharsPerBatch"] = ParsePositiveInt(MaxCharsPerBatch, 8000);
+      pipelineDefaults["AiBatchSize"] = ParsePositiveInt(AiBatchSize, 12);
+      pipelineDefaults["MaxFileSizeMb"] = ParsePositiveInt(MaxFileSizeMb, 50);
+      pipelineDefaults["ApplyInPlace"] = ApplyInPlace;
+      pipelineDefaults["GlossaryCsvPath"] = string.IsNullOrWhiteSpace(GlossaryPath) ? null : GlossaryPath;
+      pipelineDefaults["ProviderEndpoint"] = string.IsNullOrWhiteSpace(ProviderEndpoint) ? null : ProviderEndpoint;
+      pipelineDefaults["ProviderModel"] = string.IsNullOrWhiteSpace(ProviderModel) ? null : ProviderModel;
+      pipelineDefaults["ProviderRegion"] = string.IsNullOrWhiteSpace(ProviderRegion) ? null : ProviderRegion;
+      pipelineDefaults["FallbackProviderEndpoint"] = string.IsNullOrWhiteSpace(FallbackProviderEndpoint) ? null : FallbackProviderEndpoint;
+      pipelineDefaults["FallbackProviderModel"] = string.IsNullOrWhiteSpace(FallbackProviderModel) ? null : FallbackProviderModel;
+      pipelineDefaults["FallbackProviderRegion"] = string.IsNullOrWhiteSpace(FallbackProviderRegion) ? null : FallbackProviderRegion;
+      pipelineDefaults["SecondFallbackProviderEndpoint"] =
+        string.IsNullOrWhiteSpace(SecondFallbackProviderEndpoint) ? null : SecondFallbackProviderEndpoint;
+      pipelineDefaults["SecondFallbackProviderModel"] =
+        string.IsNullOrWhiteSpace(SecondFallbackProviderModel) ? null : SecondFallbackProviderModel;
+      pipelineDefaults["SecondFallbackProviderRegion"] =
+        string.IsNullOrWhiteSpace(SecondFallbackProviderRegion) ? null : SecondFallbackProviderRegion;
+
+      await SaveProviderSecretAsync(ProviderName, "api-key", ProviderApiKey);
+      await SaveProviderSecretAsync(FallbackProviderName, "fallback-api-key", FallbackProviderApiKey);
+      await SaveProviderSecretAsync(SecondFallbackProviderName, "second-fallback-api-key", SecondFallbackProviderApiKey);
+
+      root["PipelineDefaults"] = pipelineDefaults;
+
+      Directory.CreateDirectory(Path.GetDirectoryName(_localSettingsPath) ?? Directory.GetCurrentDirectory());
+      var json = root.ToJsonString(new JsonSerializerOptions
+      {
+        WriteIndented = true
+      });
+      File.WriteAllText(_localSettingsPath, json);
+      AppendLog($"Settings saved to: {_localSettingsPath}");
+      SetIdleStatus("Settings saved", "Configuration has been persisted.");
+    }
+    catch (Exception ex)
+    {
+      AppendLog($"Save settings failed: {ex.Message}");
+      SetErrorStatus("Save failed", "Could not persist settings.", ex.Message);
+      _logger.LogError(ex, "Save settings failed.");
+    }
+  }
+
+  private async Task SaveProviderSecretAsync(string? providerName, string suffix, string? apiKey)
+  {
+    if (string.IsNullOrWhiteSpace(providerName) || string.IsNullOrWhiteSpace(apiKey))
+    {
+      return;
+    }
+
+    var secretKey = $"provider:{providerName}:" + suffix;
+    await _secretStore.SaveAsync(secretKey, apiKey, CancellationToken.None);
+  }
+
+  private static string ResolveLocalSettingsPath()
+  {
+    var cwd = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.local.json");
+    var baseDir = Path.Combine(AppContext.BaseDirectory, "appsettings.local.json");
+    if (File.Exists(cwd))
+    {
+      return cwd;
+    }
+
+    if (File.Exists(baseDir))
+    {
+      return baseDir;
+    }
+
+    if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json")))
+    {
+      return cwd;
+    }
+
+    if (File.Exists(Path.Combine(AppContext.BaseDirectory, "appsettings.json")))
+    {
+      return baseDir;
+    }
+
+    return cwd;
+  }
+
   private void SetIdleStatus(string message, string detail)
   {
     StatusMessage = message;
@@ -430,33 +578,33 @@ public partial class MainWindowViewModel : ObservableObject
     StatusMessage = message;
     StatusDetail = detail;
     HasError = true;
-    ErrorMessage = $"错误详情：{errorDetail}";
+    ErrorMessage = $"Error details: {errorDetail}";
     StatusBorderBrush = "#FCA5A5";
     StatusBackground = "#FFF1F2";
   }
 
   private void UpdateProgressCaption(string tail)
   {
-    ProgressCaption = $"进度：{ProgressValue:F1}%（{tail}）";
+    ProgressCaption = $"Progress: {ProgressValue:F1}% ({tail})";
   }
 
   private void UpdateCurrentFileCaption()
   {
     CurrentFileCaption = string.IsNullOrWhiteSpace(CurrentFile) || CurrentFile == "-"
-      ? "当前文件：-"
-      : $"当前文件：{CurrentFile}";
+      ? "Current file: -"
+      : $"Current file: {CurrentFile}";
   }
 
   private static string GetStageLabel(string stage)
   {
     return stage switch
     {
-      "detect-project" => "项目识别",
-      "extract" => "文本抽取",
-      "translate" => "文本翻译",
-      "apply" => "写入输出",
-      "done" => "收尾完成",
-      _ => "处理中"
+      "detect-project" => "Project detection",
+      "extract" => "Text extraction",
+      "translate" => "Translation",
+      "apply" => "Writing output",
+      "done" => "Completed",
+      _ => "Processing"
     };
   }
 
@@ -539,12 +687,16 @@ public partial class MainWindowViewModel : ObservableObject
   private void ApplyAiPriorityRouting(
     ref string providerName,
     ref string? fallbackProviderName,
+    ref string? secondFallbackProviderName,
     ref string? providerEndpoint,
     ref string? providerModel,
     ref string? providerRegion,
     ref string? fallbackProviderEndpoint,
     ref string? fallbackProviderModel,
-    ref string? fallbackProviderRegion)
+    ref string? fallbackProviderRegion,
+    ref string? secondFallbackProviderEndpoint,
+    ref string? secondFallbackProviderModel,
+    ref string? secondFallbackProviderRegion)
   {
     if (!string.Equals(providerName, "llm", StringComparison.OrdinalIgnoreCase))
     {
@@ -556,7 +708,7 @@ public partial class MainWindowViewModel : ObservableObject
       providerEndpoint = primary.Endpoint;
       providerModel = primary.Model;
       providerRegion = null;
-      AppendLog($"AI优先级1：{AiPriorityPrimary} -> {primary.Endpoint} / {primary.Model}");
+      AppendLog($"AI priority 1: {AiPriorityPrimary} -> {primary.Endpoint} / {primary.Model}");
     }
 
     if (TryResolveAiPreset(AiPrioritySecondary, out var secondary))
@@ -565,16 +717,30 @@ public partial class MainWindowViewModel : ObservableObject
       fallbackProviderEndpoint = secondary.Endpoint;
       fallbackProviderModel = secondary.Model;
       fallbackProviderRegion = null;
-      AppendLog($"AI优先级2：{AiPrioritySecondary} -> {secondary.Endpoint} / {secondary.Model}");
-      return;
+      AppendLog($"AI priority 2: {AiPrioritySecondary} -> {secondary.Endpoint} / {secondary.Model}");
     }
-
-    if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
+    else if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
     {
       fallbackProviderName = null;
       fallbackProviderEndpoint = null;
       fallbackProviderModel = null;
       fallbackProviderRegion = null;
+    }
+
+    if (TryResolveAiPreset(AiPriorityTertiary, out var tertiary))
+    {
+      secondFallbackProviderName = "llm";
+      secondFallbackProviderEndpoint = tertiary.Endpoint;
+      secondFallbackProviderModel = tertiary.Model;
+      secondFallbackProviderRegion = null;
+      AppendLog($"AI priority 3: {AiPriorityTertiary} -> {tertiary.Endpoint} / {tertiary.Model}");
+    }
+    else if (string.Equals(AiPriorityTertiary, "none", StringComparison.OrdinalIgnoreCase))
+    {
+      secondFallbackProviderName = null;
+      secondFallbackProviderEndpoint = null;
+      secondFallbackProviderModel = null;
+      secondFallbackProviderRegion = null;
     }
   }
 
@@ -598,15 +764,28 @@ public partial class MainWindowViewModel : ObservableObject
       FallbackProviderEndpoint = secondary.Endpoint;
       FallbackProviderModel = secondary.Model;
       FallbackProviderRegion = string.Empty;
-      return;
     }
-
-    if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
+    else if (string.Equals(AiPrioritySecondary, "none", StringComparison.OrdinalIgnoreCase))
     {
       FallbackProviderName = string.Empty;
       FallbackProviderEndpoint = string.Empty;
       FallbackProviderModel = string.Empty;
       FallbackProviderRegion = string.Empty;
+    }
+
+    if (TryResolveAiPreset(AiPriorityTertiary, out var tertiary))
+    {
+      SecondFallbackProviderName = "llm";
+      SecondFallbackProviderEndpoint = tertiary.Endpoint;
+      SecondFallbackProviderModel = tertiary.Model;
+      SecondFallbackProviderRegion = string.Empty;
+    }
+    else if (string.Equals(AiPriorityTertiary, "none", StringComparison.OrdinalIgnoreCase))
+    {
+      SecondFallbackProviderName = string.Empty;
+      SecondFallbackProviderEndpoint = string.Empty;
+      SecondFallbackProviderModel = string.Empty;
+      SecondFallbackProviderRegion = string.Empty;
     }
   }
 
@@ -643,11 +822,11 @@ public partial class MainWindowViewModel : ObservableObject
   private void UpdateQualityPanel(TranslationRunResult result)
   {
     QualitySummary =
-      $"唯一源文本 {result.UniqueSourceCount}｜缓存命中 {result.CacheHits}｜术语命中 {result.GlossaryHits}｜失败 {result.FailedUniqueSources}｜疑似未翻译 {result.IdentityCount}｜长度比 {result.AverageLengthRatio:F2}";
+      $"鍞竴婧愭枃鏈?{result.UniqueSourceCount}锝滅紦瀛樺懡涓?{result.CacheHits}锝滄湳璇懡涓?{result.GlossaryHits}锝滃け璐?{result.FailedUniqueSources}锝滅枒浼兼湭缈昏瘧 {result.IdentityCount}锝滈暱搴︽瘮 {result.AverageLengthRatio:F2}";
 
     if (string.IsNullOrWhiteSpace(result.QualityReportPath) || !File.Exists(result.QualityReportPath))
     {
-      QualityPreview = "未生成质量预览。";
+      QualityPreview = "Quality report not generated.";
       return;
     }
 
@@ -656,7 +835,7 @@ public partial class MainWindowViewModel : ObservableObject
       using var doc = JsonDocument.Parse(File.ReadAllText(result.QualityReportPath));
       if (!doc.RootElement.TryGetProperty("Preview", out var previewNode) || previewNode.ValueKind != JsonValueKind.Array)
       {
-        QualityPreview = "质量报告无预览数据。";
+        QualityPreview = "Quality report contains no preview data.";
         return;
       }
 
@@ -667,17 +846,17 @@ public partial class MainWindowViewModel : ObservableObject
         var translated = item.TryGetProperty("Translated", out var targetNode) ? targetNode.GetString() ?? string.Empty : string.Empty;
         var isIdentity = item.TryGetProperty("IsIdentity", out var identityNode) &&
                          identityNode.ValueKind == JsonValueKind.True;
-        var tag = isIdentity ? "未变更" : "已翻译";
+        var tag = isIdentity ? "identity" : "translated";
         lines.Add($"[{tag}] {source} => {translated}");
       }
 
       QualityPreview = lines.Count > 0
         ? string.Join(Environment.NewLine, lines)
-        : "质量报告没有可展示样例。";
+        : "Quality report has no preview rows.";
     }
     catch (Exception ex)
     {
-      QualityPreview = $"质量报告解析失败：{ex.Message}";
+      QualityPreview = $"Failed to parse quality report: {ex.Message}";
     }
   }
 
@@ -686,8 +865,10 @@ public partial class MainWindowViewModel : ObservableObject
     var defaults = configuration.GetSection("PipelineDefaults");
     ProviderName = defaults["ProviderName"] ?? ProviderName;
     FallbackProviderName = defaults["FallbackProviderName"] ?? FallbackProviderName;
+    SecondFallbackProviderName = defaults["SecondFallbackProviderName"] ?? SecondFallbackProviderName;
     AiPriorityPrimary = defaults["AiPriorityPrimary"] ?? AiPriorityPrimary;
     AiPrioritySecondary = defaults["AiPrioritySecondary"] ?? AiPrioritySecondary;
+    AiPriorityTertiary = defaults["AiPriorityTertiary"] ?? AiPriorityTertiary;
     SourceLang = defaults["SourceLang"] ?? SourceLang;
     TargetLang = defaults["TargetLang"] ?? TargetLang;
     MaxConcurrency = defaults["MaxConcurrency"] ?? MaxConcurrency;
@@ -703,6 +884,10 @@ public partial class MainWindowViewModel : ObservableObject
     FallbackProviderModel = defaults["FallbackProviderModel"] ?? FallbackProviderModel;
     FallbackProviderRegion = defaults["FallbackProviderRegion"] ?? FallbackProviderRegion;
     FallbackProviderApiKey = defaults["FallbackProviderApiKey"] ?? FallbackProviderApiKey;
+    SecondFallbackProviderEndpoint = defaults["SecondFallbackProviderEndpoint"] ?? SecondFallbackProviderEndpoint;
+    SecondFallbackProviderModel = defaults["SecondFallbackProviderModel"] ?? SecondFallbackProviderModel;
+    SecondFallbackProviderRegion = defaults["SecondFallbackProviderRegion"] ?? SecondFallbackProviderRegion;
+    SecondFallbackProviderApiKey = defaults["SecondFallbackProviderApiKey"] ?? SecondFallbackProviderApiKey;
   }
 
   partial void OnExePathChanged(string value)
@@ -738,6 +923,11 @@ public partial class MainWindowViewModel : ObservableObject
     ApplyAiPrioritySelectionToEditor();
   }
 
+  partial void OnAiPriorityTertiaryChanged(string value)
+  {
+    ApplyAiPrioritySelectionToEditor();
+  }
+
   partial void OnQualityReportPathChanged(string value)
   {
     NotifyCommandStates();
@@ -755,9 +945,8 @@ public partial class MainWindowViewModel : ObservableObject
 
   partial void OnShowAdvancedSettingsChanged(bool value)
   {
-    AdvancedToggleText = value ? "隐藏高级设置" : "显示高级设置";
+    AdvancedToggleText = value ? "Hide advanced settings" : "Show advanced settings";
   }
-
   private void NotifyCommandStates()
   {
     StartCommand.NotifyCanExecuteChanged();
@@ -766,5 +955,16 @@ public partial class MainWindowViewModel : ObservableObject
     OpenQualityReportCommand.NotifyCanExecuteChanged();
     OpenPreviewCommand.NotifyCanExecuteChanged();
     OpenFailedItemsCommand.NotifyCanExecuteChanged();
+    SaveSettingsCommand.NotifyCanExecuteChanged();
   }
 }
+
+
+
+
+
+
+
+
+
+

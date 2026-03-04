@@ -1,6 +1,8 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EGT.Contracts.Translation;
 using Microsoft.Extensions.Logging;
 using Polly;
@@ -99,7 +101,7 @@ public sealed class LlmTranslationProvider : ITranslationProvider
           _logger.LogWarning("LLM retry {RetryCount}, waiting {Delay}", retryCount, delay);
         });
 
-    var payload = BuildBatchPayload(chunk, options, model, useResponsesProtocol);
+    var payload = BuildBatchPayload(chunk, options, model, useResponsesProtocol, endpoint);
     var response = await SendAsync(policy, endpoint, options.ProviderApiKey, payload, ct);
     if (!response.IsSuccessStatusCode)
     {
@@ -141,6 +143,7 @@ public sealed class LlmTranslationProvider : ITranslationProvider
 
     var translated = new List<TranslatedItem>();
     var errors = new List<ProviderError>();
+    var unresolved = new List<TranslateItem>();
     foreach (var item in chunk)
     {
       if (translatedById.TryGetValue(item.Id, out var text) && !string.IsNullOrWhiteSpace(text))
@@ -153,6 +156,38 @@ public sealed class LlmTranslationProvider : ITranslationProvider
       }
       else
       {
+        unresolved.Add(item);
+      }
+    }
+
+    if (unresolved.Count > 0)
+    {
+      var singleResult = await FallbackToSingleAsync(
+        unresolved,
+        options,
+        endpoint,
+        model,
+        useResponsesProtocol,
+        "missing_items_in_batch",
+        ct);
+
+      translated.AddRange(singleResult.Items);
+      var singleErrorsById = singleResult.Errors.ToDictionary(x => x.Id, StringComparer.Ordinal);
+      var recoveredIds = singleResult.Items.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+
+      foreach (var item in unresolved)
+      {
+        if (recoveredIds.Contains(item.Id))
+        {
+          continue;
+        }
+
+        if (singleErrorsById.TryGetValue(item.Id, out var singleError))
+        {
+          errors.Add(singleError);
+          continue;
+        }
+
         errors.Add(new ProviderError
         {
           Id = item.Id,
@@ -185,7 +220,7 @@ public sealed class LlmTranslationProvider : ITranslationProvider
 
     foreach (var item in chunk)
     {
-      var singlePayload = BuildSinglePayload(item, options, model, useResponsesProtocol);
+      var singlePayload = BuildSinglePayload(item, options, model, useResponsesProtocol, endpoint);
       var policy = Policy
         .Handle<HttpRequestException>()
         .OrResult<HttpResponseMessage>(r =>
@@ -249,7 +284,8 @@ public sealed class LlmTranslationProvider : ITranslationProvider
         req.Headers.Add("Authorization", $"Bearer {apiKey}");
       }
 
-      req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+      req.Content = new ByteArrayContent(Encoding.UTF8.GetBytes(payload));
+      req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
       return await client.SendAsync(req, token);
     }, ct);
   }
@@ -258,7 +294,8 @@ public sealed class LlmTranslationProvider : ITranslationProvider
     IReadOnlyList<TranslateItem> chunk,
     TranslateOptions options,
     string model,
-    bool useResponsesProtocol)
+    bool useResponsesProtocol,
+    string endpoint)
   {
     var input = string.Join(
       "\n",
@@ -270,13 +307,18 @@ public sealed class LlmTranslationProvider : ITranslationProvider
 
     if (useResponsesProtocol)
     {
-      return JsonSerializer.Serialize(new
+      var payload = new Dictionary<string, object?>
       {
-        model,
-        temperature = 0,
-        instructions = systemPrompt,
-        input = userPrompt
-      });
+        ["model"] = model,
+        ["input"] = BuildResponsesInput(systemPrompt, userPrompt)
+      };
+
+      if (!ShouldOmitResponsesTemperature(endpoint))
+      {
+        payload["temperature"] = 0;
+      }
+
+      return JsonSerializer.Serialize(payload);
     }
 
     return JsonSerializer.Serialize(new
@@ -303,7 +345,8 @@ public sealed class LlmTranslationProvider : ITranslationProvider
     TranslateItem item,
     TranslateOptions options,
     string model,
-    bool useResponsesProtocol)
+    bool useResponsesProtocol,
+    string endpoint)
   {
     var systemPrompt =
       "You are a game localization translator. Keep placeholders like __PH_0__, {0}, %s, <...>, \\n unchanged. Return only the translated text.";
@@ -311,13 +354,18 @@ public sealed class LlmTranslationProvider : ITranslationProvider
 
     if (useResponsesProtocol)
     {
-      return JsonSerializer.Serialize(new
+      var payload = new Dictionary<string, object?>
       {
-        model,
-        temperature = 0,
-        instructions = systemPrompt,
-        input = userPrompt
-      });
+        ["model"] = model,
+        ["input"] = BuildResponsesInput(systemPrompt, userPrompt)
+      };
+
+      if (!ShouldOmitResponsesTemperature(endpoint))
+      {
+        payload["temperature"] = 0;
+      }
+
+      return JsonSerializer.Serialize(payload);
     }
 
     return JsonSerializer.Serialize(new
@@ -431,6 +479,52 @@ public sealed class LlmTranslationProvider : ITranslationProvider
     }
 
     return endpoint.Contains("/responses", StringComparison.OrdinalIgnoreCase);
+  }
+
+  private static IReadOnlyList<ResponsesInputItem> BuildResponsesInput(string systemPrompt, string userPrompt)
+  {
+    var items = new List<ResponsesInputItem>();
+
+    if (!string.IsNullOrWhiteSpace(systemPrompt))
+    {
+      items.Add(new ResponsesInputItem
+      {
+        Role = "system",
+        Content = new[]
+        {
+          new ResponsesInputContent
+          {
+            Type = "input_text",
+            Text = systemPrompt
+          }
+        }
+      });
+    }
+
+    items.Add(new ResponsesInputItem
+    {
+      Role = "user",
+      Content = new[]
+      {
+        new ResponsesInputContent
+        {
+          Type = "input_text",
+          Text = userPrompt
+        }
+      }
+    });
+
+    return items;
+  }
+
+  private static bool ShouldOmitResponsesTemperature(string endpoint)
+  {
+    if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+    {
+      return false;
+    }
+
+    return string.Equals(uri.Host, "gmn.chuangzuoli.com", StringComparison.OrdinalIgnoreCase);
   }
 
   private static string? ExtractChatContent(string json)
@@ -607,4 +701,22 @@ public sealed class LlmTranslationProvider : ITranslationProvider
         IsTransient = false
       }).ToList()
     };
+
+  private sealed class ResponsesInputItem
+  {
+    [JsonPropertyName("role")]
+    public required string Role { get; init; }
+
+    [JsonPropertyName("content")]
+    public required IReadOnlyList<ResponsesInputContent> Content { get; init; }
+  }
+
+  private sealed class ResponsesInputContent
+  {
+    [JsonPropertyName("type")]
+    public required string Type { get; init; }
+
+    [JsonPropertyName("text")]
+    public required string Text { get; init; }
+  }
 }

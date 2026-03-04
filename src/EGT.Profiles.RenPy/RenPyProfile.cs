@@ -32,6 +32,10 @@ public sealed class RenPyProfile : IProfile
     @"^(old|new)\s+[""']",
     RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+  private static readonly Regex OldLineRegex = new(
+    @"^old\s+[""']",
+    RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
   private static readonly Regex IdentifierRegex = new(
     @"^[A-Za-z_][A-Za-z0-9_]*$",
     RegexOptions.Compiled);
@@ -258,6 +262,13 @@ public sealed class RenPyProfile : IProfile
       var trimmed = line.Trim();
       if (IsCandidateLine(trimmed))
       {
+        // Ren'Py string translation keys must keep `old` text unchanged.
+        if (OldLineRegex.IsMatch(trimmed))
+        {
+          lineStart = i + 1;
+          continue;
+        }
+
         foreach (Match match in QuoteRegex.Matches(line))
         {
           var grp = match.Groups["value"].Success ? match.Groups["value"] : match.Groups["single"];

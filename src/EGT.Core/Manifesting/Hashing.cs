@@ -28,6 +28,7 @@ public static class Hashing
       options.ProfileName,
       options.ProviderName,
       options.FallbackProviderName,
+      options.SecondFallbackProviderName,
       options.SourceLang,
       options.TargetLang,
       options.PreserveFormatting,
@@ -44,6 +45,9 @@ public static class Hashing
       options.FallbackProviderEndpoint,
       options.FallbackProviderModel,
       options.FallbackProviderRegion,
+      options.SecondFallbackProviderEndpoint,
+      options.SecondFallbackProviderModel,
+      options.SecondFallbackProviderRegion,
       options.ExcludeExtensions
     };
     var json = JsonSerializer.Serialize(normalized);

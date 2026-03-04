@@ -80,6 +80,13 @@ public sealed class TranslationPipeline : ITranslationPipeline
       _logger.LogInformation("Fallback provider selected: {ProviderName}", fallbackProvider.Name);
     }
 
+    ITranslationProvider? secondFallbackProvider = null;
+    if (!string.IsNullOrWhiteSpace(options.SecondFallbackProviderName))
+    {
+      secondFallbackProvider = _providerSelector.Select(options.SecondFallbackProviderName);
+      _logger.LogInformation("Second fallback provider selected: {ProviderName}", secondFallbackProvider.Name);
+    }
+
     Report(progress, "extract", 0, 0, null, stopwatch, $"正在使用 Profile 抽取：{profile.Name}");
     var extraction = await profile.ExtractAsync(project, options, ct);
     var total = extraction.Entries.Count;
@@ -88,12 +95,17 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var glossary = await _glossaryLoader.LoadAsync(options.GlossaryCsvPath, ct);
     var resolvedApiKey = await ResolveProviderApiKeyAsync(provider.Name, options, ct);
     var resolvedFallbackApiKey = await ResolveFallbackProviderApiKeyAsync(options, ct);
-    var translateOptions = options.ToTranslateOptions(glossary, resolvedApiKey, resolvedFallbackApiKey);
+    var resolvedSecondFallbackApiKey = await ResolveSecondFallbackProviderApiKeyAsync(options, ct);
+    var translateOptions = options.ToTranslateOptions(
+      glossary,
+      resolvedApiKey,
+      resolvedFallbackApiKey,
+      resolvedSecondFallbackApiKey);
 
     var translatedByEntryId = new Dictionary<string, string>(StringComparer.Ordinal);
     var translatedBySource = new Dictionary<string, string>(StringComparer.Ordinal);
     var failedSources = new HashSet<string>(StringComparer.Ordinal);
-    var failedDetails = new List<FailedTranslationItem>();
+    var failedById = new Dictionary<string, FailedTranslationItem>(StringComparer.Ordinal);
     var glossaryHitCount = 0;
     var cacheHitCount = 0;
 
@@ -165,71 +177,17 @@ public sealed class TranslationPipeline : ITranslationPipeline
         stopwatch,
         $"请求批次 {batchIndex + 1}/{batches.Count}（{batchItems.Count} 条）");
 
-      TranslateResult result;
-      try
-      {
-        result = await provider.TranslateBatchAsync(batchItems, translateOptions, ct);
-      }
-      catch (Exception ex)
-      {
-        _logger.LogWarning(ex, "Primary provider threw exception. Batch will be marked for fallback.");
-        warnings.Add($"primary-provider-exception: {ex.Message}");
-        result = new TranslateResult
-        {
-          Items = Array.Empty<TranslatedItem>(),
-          Errors = batchItems.Select(x => new ProviderError
-          {
-            Id = x.Id,
-            Code = "provider_exception",
-            Message = ex.Message,
-            IsTransient = true
-          }).ToList()
-        };
-      }
+      var result = await TranslateWithFallbackChainAsync(
+        batchItems,
+        provider,
+        fallbackProvider,
+        secondFallbackProvider,
+        translateOptions,
+        warnings,
+        ct);
 
       var translatedMap = result.Items.ToDictionary(x => x.Id, x => x.TranslatedText, StringComparer.Ordinal);
       var errorsMap = result.Errors.ToDictionary(x => x.Id, x => x, StringComparer.Ordinal);
-
-      if (fallbackProvider is not null && errorsMap.Count > 0)
-      {
-        var failedItems = batchItems.Where(x => errorsMap.ContainsKey(x.Id)).ToList();
-        if (failedItems.Count > 0)
-        {
-          var fallbackOptions = BuildFallbackTranslateOptions(translateOptions);
-          TranslateResult fallbackResult;
-          try
-          {
-            fallbackResult = await fallbackProvider.TranslateBatchAsync(failedItems, fallbackOptions, ct);
-          }
-          catch (Exception ex)
-          {
-            _logger.LogWarning(ex, "Fallback provider threw exception.");
-            warnings.Add($"fallback-provider-exception: {ex.Message}");
-            fallbackResult = new TranslateResult
-            {
-              Items = Array.Empty<TranslatedItem>(),
-              Errors = failedItems.Select(x => new ProviderError
-              {
-                Id = x.Id,
-                Code = "fallback_provider_exception",
-                Message = ex.Message,
-                IsTransient = true
-              }).ToList()
-            };
-          }
-
-          foreach (var fallbackItem in fallbackResult.Items)
-          {
-            translatedMap[fallbackItem.Id] = fallbackItem.TranslatedText;
-            errorsMap.Remove(fallbackItem.Id);
-          }
-
-          foreach (var fallbackError in fallbackResult.Errors)
-          {
-            errorsMap[fallbackError.Id] = fallbackError;
-          }
-        }
-      }
 
       Report(
         progress,
@@ -261,18 +219,42 @@ public sealed class TranslationPipeline : ITranslationPipeline
             warnings.Add($"{entry.Item.Id}: {error.Code} - {error.Message}");
           }
 
-          failedDetails.Add(new FailedTranslationItem
+          failedById[entry.Item.Id] = new FailedTranslationItem
           {
             Id = entry.Item.Id,
             Source = entry.GroupKey,
             Context = entry.Item.Context ?? string.Empty,
             Code = errorCode,
             Message = errorMessage
-          });
+          };
         }
 
         completed++;
         Report(progress, "translate", completed, sourceGroups.Count, entry.Item.Context, stopwatch, "翻译中");
+      }
+    }
+
+    if (failedSources.Count > 0)
+    {
+      var recovered = await RetryFailedSourcesAsync(
+        pending,
+        failedSources,
+        translatedBySource,
+        failedById,
+        provider,
+        fallbackProvider,
+        secondFallbackProvider,
+        translateOptions,
+        resolvedCacheFilePath,
+        sourceGroups.Count,
+        progress,
+        stopwatch,
+        warnings,
+        ct);
+
+      if (recovered > 0)
+      {
+        warnings.Add($"retry-recovered: {recovered}");
       }
     }
 
@@ -320,7 +302,7 @@ public sealed class TranslationPipeline : ITranslationPipeline
       sourceGroups,
       translatedBySource,
       failedSources,
-      failedDetails,
+      failedById.Values.ToList(),
       cacheHitCount,
       glossaryHitCount,
       pending.Count,
@@ -361,6 +343,215 @@ public sealed class TranslationPipeline : ITranslationPipeline
   public Task RestoreAsync(string manifestPath, CancellationToken ct) =>
     _restoreService.RestoreAsync(manifestPath, ct);
 
+  private async Task<int> RetryFailedSourcesAsync(
+    IReadOnlyList<(string GroupKey, TranslateItem Item, string CacheKey)> pending,
+    ISet<string> failedSources,
+    IDictionary<string, string> translatedBySource,
+    IDictionary<string, FailedTranslationItem> failedById,
+    ITranslationProvider provider,
+    ITranslationProvider? fallbackProvider,
+    ITranslationProvider? secondFallbackProvider,
+    TranslateOptions translateOptions,
+    string cacheFilePath,
+    int totalSources,
+    IProgress<PipelineProgress>? progress,
+    Stopwatch stopwatch,
+    ICollection<string> warnings,
+    CancellationToken ct)
+  {
+    if (failedSources.Count == 0)
+    {
+      return 0;
+    }
+
+    var pendingBySource = pending.ToDictionary(x => x.GroupKey, x => x, StringComparer.Ordinal);
+    var retryTargets = failedSources.Where(pendingBySource.ContainsKey).ToList();
+    if (retryTargets.Count == 0)
+    {
+      return 0;
+    }
+
+    var repairedOptions = BuildRepairTranslateOptions(translateOptions);
+    var recovered = 0;
+
+    for (var i = 0; i < retryTargets.Count; i++)
+    {
+      ct.ThrowIfCancellationRequested();
+
+      var source = retryTargets[i];
+      var entry = pendingBySource[source];
+      var processed = totalSources - failedSources.Count;
+      Report(
+        progress,
+        "translate",
+        processed,
+        totalSources,
+        entry.Item.Context,
+        stopwatch,
+        $"Retry failed items {i + 1}/{retryTargets.Count}");
+
+      var result = await TranslateWithFallbackChainAsync(
+        new[] { entry.Item },
+        provider,
+        fallbackProvider,
+        secondFallbackProvider,
+        repairedOptions,
+        warnings,
+        ct);
+
+      var translated = result.Items.FirstOrDefault(x => string.Equals(x.Id, entry.Item.Id, StringComparison.Ordinal));
+      if (translated is not null && !string.IsNullOrWhiteSpace(translated.TranslatedText))
+      {
+        var restored = _placeholderProtector.Restore(translated.TranslatedText, entry.Item.Placeholders);
+        translatedBySource[source] = restored;
+        await _cache.SetAsync(cacheFilePath, entry.CacheKey, restored, ct);
+        failedSources.Remove(source);
+        failedById.Remove(entry.Item.Id);
+        recovered++;
+        continue;
+      }
+
+      var error = result.Errors.FirstOrDefault(x => string.Equals(x.Id, entry.Item.Id, StringComparison.Ordinal));
+      failedById[entry.Item.Id] = new FailedTranslationItem
+      {
+        Id = entry.Item.Id,
+        Source = source,
+        Context = entry.Item.Context ?? string.Empty,
+        Code = error?.Code ?? "retry_failed",
+        Message = error?.Message ?? "Retry pass could not translate this item."
+      };
+    }
+
+    return recovered;
+  }
+
+  private async Task<TranslateResult> TranslateWithFallbackChainAsync(
+    IReadOnlyList<TranslateItem> batchItems,
+    ITranslationProvider provider,
+    ITranslationProvider? fallbackProvider,
+    ITranslationProvider? secondFallbackProvider,
+    TranslateOptions translateOptions,
+    ICollection<string> warnings,
+    CancellationToken ct)
+  {
+    TranslateResult result;
+    try
+    {
+      result = await provider.TranslateBatchAsync(batchItems, translateOptions, ct);
+    }
+    catch (Exception ex)
+    {
+      _logger.LogWarning(ex, "Primary provider threw exception. Batch will be marked for fallback.");
+      warnings.Add($"primary-provider-exception: {ex.Message}");
+      result = new TranslateResult
+      {
+        Items = Array.Empty<TranslatedItem>(),
+        Errors = batchItems.Select(x => new ProviderError
+        {
+          Id = x.Id,
+          Code = "provider_exception",
+          Message = ex.Message,
+          IsTransient = true
+        }).ToList()
+      };
+    }
+
+    var translatedMap = result.Items.ToDictionary(x => x.Id, x => x.TranslatedText, StringComparer.Ordinal);
+    var errorsMap = result.Errors.ToDictionary(x => x.Id, x => x, StringComparer.Ordinal);
+
+    if (fallbackProvider is not null && errorsMap.Count > 0)
+    {
+      var failedItems = batchItems.Where(x => errorsMap.ContainsKey(x.Id)).ToList();
+      if (failedItems.Count > 0)
+      {
+        var fallbackOptions = BuildFallbackTranslateOptions(translateOptions);
+        TranslateResult fallbackResult;
+        try
+        {
+          fallbackResult = await fallbackProvider.TranslateBatchAsync(failedItems, fallbackOptions, ct);
+        }
+        catch (Exception ex)
+        {
+          _logger.LogWarning(ex, "Fallback provider threw exception.");
+          warnings.Add($"fallback-provider-exception: {ex.Message}");
+          fallbackResult = new TranslateResult
+          {
+            Items = Array.Empty<TranslatedItem>(),
+            Errors = failedItems.Select(x => new ProviderError
+            {
+              Id = x.Id,
+              Code = "fallback_provider_exception",
+              Message = ex.Message,
+              IsTransient = true
+            }).ToList()
+          };
+        }
+
+        foreach (var fallbackItem in fallbackResult.Items)
+        {
+          translatedMap[fallbackItem.Id] = fallbackItem.TranslatedText;
+          errorsMap.Remove(fallbackItem.Id);
+        }
+
+        foreach (var fallbackError in fallbackResult.Errors)
+        {
+          errorsMap[fallbackError.Id] = fallbackError;
+        }
+      }
+    }
+
+    if (secondFallbackProvider is not null && errorsMap.Count > 0)
+    {
+      var failedItems = batchItems.Where(x => errorsMap.ContainsKey(x.Id)).ToList();
+      if (failedItems.Count > 0)
+      {
+        var secondFallbackOptions = BuildSecondFallbackTranslateOptions(translateOptions);
+        TranslateResult secondFallbackResult;
+        try
+        {
+          secondFallbackResult = await secondFallbackProvider.TranslateBatchAsync(failedItems, secondFallbackOptions, ct);
+        }
+        catch (Exception ex)
+        {
+          _logger.LogWarning(ex, "Second fallback provider threw exception.");
+          warnings.Add($"second-fallback-provider-exception: {ex.Message}");
+          secondFallbackResult = new TranslateResult
+          {
+            Items = Array.Empty<TranslatedItem>(),
+            Errors = failedItems.Select(x => new ProviderError
+            {
+              Id = x.Id,
+              Code = "second_fallback_provider_exception",
+              Message = ex.Message,
+              IsTransient = true
+            }).ToList()
+          };
+        }
+
+        foreach (var fallbackItem in secondFallbackResult.Items)
+        {
+          translatedMap[fallbackItem.Id] = fallbackItem.TranslatedText;
+          errorsMap.Remove(fallbackItem.Id);
+        }
+
+        foreach (var fallbackError in secondFallbackResult.Errors)
+        {
+          errorsMap[fallbackError.Id] = fallbackError;
+        }
+      }
+    }
+
+    return new TranslateResult
+    {
+      Items = translatedMap.Select(x => new TranslatedItem
+      {
+        Id = x.Key,
+        TranslatedText = x.Value
+      }).ToList(),
+      Errors = errorsMap.Values.ToList()
+    };
+  }
+
   private static IEnumerable<List<(string GroupKey, TranslateItem Item, string CacheKey)>> SplitBatches(
     List<(string GroupKey, TranslateItem Item, string CacheKey)> items,
     int maxItems,
@@ -397,6 +588,33 @@ public sealed class TranslationPipeline : ITranslationPipeline
     var payload =
       $"{provider}|{options.SourceLang}|{options.TargetLang}|{normalizedSource.Trim()}|{glossaryVersion ?? "none"}|{RulesVersion}";
     return Hashing.Sha256(payload);
+  }
+
+  private static TranslateOptions BuildRepairTranslateOptions(TranslateOptions options)
+  {
+    return new TranslateOptions
+    {
+      SourceLang = options.SourceLang,
+      TargetLang = options.TargetLang,
+      Glossary = options.Glossary,
+      MaxConcurrency = 1,
+      MaxItemsPerBatch = 1,
+      MaxCharsPerBatch = Math.Max(400, Math.Min(options.MaxCharsPerBatch, 2000)),
+      AiBatchSize = 1,
+      PreserveFormatting = options.PreserveFormatting,
+      ProviderApiKey = options.ProviderApiKey,
+      ProviderEndpoint = options.ProviderEndpoint,
+      ProviderModel = options.ProviderModel,
+      ProviderRegion = options.ProviderRegion,
+      FallbackProviderApiKey = options.FallbackProviderApiKey,
+      FallbackProviderEndpoint = options.FallbackProviderEndpoint,
+      FallbackProviderModel = options.FallbackProviderModel,
+      FallbackProviderRegion = options.FallbackProviderRegion,
+      SecondFallbackProviderApiKey = options.SecondFallbackProviderApiKey,
+      SecondFallbackProviderEndpoint = options.SecondFallbackProviderEndpoint,
+      SecondFallbackProviderModel = options.SecondFallbackProviderModel,
+      SecondFallbackProviderRegion = options.SecondFallbackProviderRegion
+    };
   }
 
   private static (string ResolvedPath, string? MigratedFromPath) ResolveCacheFilePath(string configuredPath)
@@ -641,6 +859,23 @@ public sealed class TranslationPipeline : ITranslationPipeline
     return await _secretStore.GetAsync(secretKey, ct);
   }
 
+  private async Task<string?> ResolveSecondFallbackProviderApiKeyAsync(PipelineOptions options, CancellationToken ct)
+  {
+    if (string.IsNullOrWhiteSpace(options.SecondFallbackProviderName))
+    {
+      return null;
+    }
+
+    var secretKey = $"provider:{options.SecondFallbackProviderName}:second-fallback-api-key";
+    if (!string.IsNullOrWhiteSpace(options.SecondFallbackProviderApiKey))
+    {
+      await _secretStore.SaveAsync(secretKey, options.SecondFallbackProviderApiKey, ct);
+      return options.SecondFallbackProviderApiKey;
+    }
+
+    return await _secretStore.GetAsync(secretKey, ct);
+  }
+
   private static TranslateOptions BuildFallbackTranslateOptions(TranslateOptions options)
   {
     return new TranslateOptions
@@ -657,10 +892,41 @@ public sealed class TranslationPipeline : ITranslationPipeline
       ProviderEndpoint = options.FallbackProviderEndpoint,
       ProviderModel = options.FallbackProviderModel,
       ProviderRegion = options.FallbackProviderRegion,
+      FallbackProviderApiKey = options.SecondFallbackProviderApiKey,
+      FallbackProviderEndpoint = options.SecondFallbackProviderEndpoint,
+      FallbackProviderModel = options.SecondFallbackProviderModel,
+      FallbackProviderRegion = options.SecondFallbackProviderRegion,
+      SecondFallbackProviderApiKey = null,
+      SecondFallbackProviderEndpoint = null,
+      SecondFallbackProviderModel = null,
+      SecondFallbackProviderRegion = null
+    };
+  }
+
+  private static TranslateOptions BuildSecondFallbackTranslateOptions(TranslateOptions options)
+  {
+    return new TranslateOptions
+    {
+      SourceLang = options.SourceLang,
+      TargetLang = options.TargetLang,
+      Glossary = options.Glossary,
+      MaxConcurrency = options.MaxConcurrency,
+      MaxItemsPerBatch = options.MaxItemsPerBatch,
+      MaxCharsPerBatch = options.MaxCharsPerBatch,
+      AiBatchSize = options.AiBatchSize,
+      PreserveFormatting = options.PreserveFormatting,
+      ProviderApiKey = options.SecondFallbackProviderApiKey,
+      ProviderEndpoint = options.SecondFallbackProviderEndpoint,
+      ProviderModel = options.SecondFallbackProviderModel,
+      ProviderRegion = options.SecondFallbackProviderRegion,
       FallbackProviderApiKey = null,
       FallbackProviderEndpoint = null,
       FallbackProviderModel = null,
-      FallbackProviderRegion = null
+      FallbackProviderRegion = null,
+      SecondFallbackProviderApiKey = null,
+      SecondFallbackProviderEndpoint = null,
+      SecondFallbackProviderModel = null,
+      SecondFallbackProviderRegion = null
     };
   }
 

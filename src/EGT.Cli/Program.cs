@@ -108,6 +108,7 @@ public static class Program
       ProfileName = ReadOption(args, "--profile"),
       ProviderName = ReadOption(args, "--provider") ?? defaults["ProviderName"] ?? "mock",
       FallbackProviderName = ReadOption(args, "--fallback-provider") ?? defaults["FallbackProviderName"],
+      SecondFallbackProviderName = ReadOption(args, "--fallback2-provider") ?? defaults["SecondFallbackProviderName"],
       SourceLang = ReadOption(args, "--source") ?? defaults["SourceLang"] ?? "auto",
       TargetLang = ReadOption(args, "--target") ?? defaults["TargetLang"] ?? "zh-Hans",
       ApplyInPlace = HasFlag(args, "--apply"),
@@ -144,7 +145,19 @@ public static class Program
                               defaults["FallbackProviderModel"],
       FallbackProviderRegion = ReadOption(args, "--fallback-region") ??
                                Environment.GetEnvironmentVariable("EGT_FALLBACK_PROVIDER_REGION") ??
-                               defaults["FallbackProviderRegion"]
+                               defaults["FallbackProviderRegion"],
+      SecondFallbackProviderApiKey = ReadOption(args, "--fallback2-api-key") ??
+                                     Environment.GetEnvironmentVariable("EGT_SECOND_FALLBACK_PROVIDER_API_KEY") ??
+                                     defaults["SecondFallbackProviderApiKey"],
+      SecondFallbackProviderEndpoint = ReadOption(args, "--fallback2-base-url") ??
+                                       Environment.GetEnvironmentVariable("EGT_SECOND_FALLBACK_PROVIDER_ENDPOINT") ??
+                                       defaults["SecondFallbackProviderEndpoint"],
+      SecondFallbackProviderModel = ReadOption(args, "--fallback2-model") ??
+                                    Environment.GetEnvironmentVariable("EGT_SECOND_FALLBACK_PROVIDER_MODEL") ??
+                                    defaults["SecondFallbackProviderModel"],
+      SecondFallbackProviderRegion = ReadOption(args, "--fallback2-region") ??
+                                     Environment.GetEnvironmentVariable("EGT_SECOND_FALLBACK_PROVIDER_REGION") ??
+                                     defaults["SecondFallbackProviderRegion"]
     };
 
     Console.WriteLine($"Running translation for: {exePath}");
@@ -264,6 +277,11 @@ public static class Program
         --fallback-base-url <url>                Fallback provider endpoint
         --fallback-model <model>                 Fallback LLM model
         --fallback-region <region>               Fallback provider region
+        --fallback2-provider <name>              Third-level fallback provider
+        --fallback2-api-key <key>                Third-level fallback API key
+        --fallback2-base-url <url>               Third-level fallback endpoint
+        --fallback2-model <model>                Third-level fallback model
+        --fallback2-region <region>              Third-level fallback region
         --concurrency <n>                        Max translation concurrency
         --chunk-sentences <n>                    Auto chunk translatable items by sentence count
         --batch-size <n>                         Alias of --chunk-sentences

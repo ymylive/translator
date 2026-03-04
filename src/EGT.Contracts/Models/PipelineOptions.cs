@@ -7,6 +7,7 @@ public sealed class PipelineOptions
   public string? ProfileName { get; init; }
   public string ProviderName { get; init; } = "mock";
   public string? FallbackProviderName { get; init; }
+  public string? SecondFallbackProviderName { get; init; }
   public string SourceLang { get; init; } = "auto";
   public string TargetLang { get; init; } = "zh-Hans";
   public bool PreserveFormatting { get; init; } = true;
@@ -29,6 +30,10 @@ public sealed class PipelineOptions
   public string? FallbackProviderEndpoint { get; init; }
   public string? FallbackProviderModel { get; init; }
   public string? FallbackProviderRegion { get; init; }
+  public string? SecondFallbackProviderApiKey { get; init; }
+  public string? SecondFallbackProviderEndpoint { get; init; }
+  public string? SecondFallbackProviderModel { get; init; }
+  public string? SecondFallbackProviderRegion { get; init; }
   public bool UploadSourceFilesToProvider { get; init; }
   public IReadOnlyCollection<string> IncludeFolders { get; init; } = Array.Empty<string>();
   public IReadOnlyCollection<string> ExcludeExtensions { get; init; } =
@@ -40,7 +45,8 @@ public sealed class PipelineOptions
   public TranslateOptions ToTranslateOptions(
     Glossary? glossary,
     string? providerApiKeyOverride = null,
-    string? fallbackProviderApiKeyOverride = null) =>
+    string? fallbackProviderApiKeyOverride = null,
+    string? secondFallbackProviderApiKeyOverride = null) =>
     new()
     {
       SourceLang = SourceLang,
@@ -58,6 +64,10 @@ public sealed class PipelineOptions
       FallbackProviderApiKey = fallbackProviderApiKeyOverride ?? FallbackProviderApiKey,
       FallbackProviderEndpoint = FallbackProviderEndpoint,
       FallbackProviderModel = FallbackProviderModel,
-      FallbackProviderRegion = FallbackProviderRegion
+      FallbackProviderRegion = FallbackProviderRegion,
+      SecondFallbackProviderApiKey = secondFallbackProviderApiKeyOverride ?? SecondFallbackProviderApiKey,
+      SecondFallbackProviderEndpoint = SecondFallbackProviderEndpoint,
+      SecondFallbackProviderModel = SecondFallbackProviderModel,
+      SecondFallbackProviderRegion = SecondFallbackProviderRegion
     };
 }

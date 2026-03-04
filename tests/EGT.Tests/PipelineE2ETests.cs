@@ -1,4 +1,5 @@
 using EGT.Contracts.Models;
+using EGT.Contracts.Translation;
 using EGT.Core.Pipeline;
 using EGT.Profiles.GenericText;
 using EGT.Profiles.RenPy;
@@ -194,15 +195,98 @@ public sealed class PipelineE2ETests
     content.Should().NotContain("[ZH]eileen_happy.webp");
   }
 
-  private static ITranslationPipeline BuildPipeline()
+  [Fact]
+  public async Task RunAsync_WithRenPyProfile_ShouldNotTranslateOldKeys_InStringBlocks()
+  {
+    var tempRoot = CreateTempDirectory();
+    var gameRoot = Path.Combine(tempRoot, "renpy_strings_game");
+    Directory.CreateDirectory(Path.Combine(gameRoot, "game", "tl", "None"));
+    await File.WriteAllTextAsync(Path.Combine(gameRoot, "MyGame.exe"), string.Empty);
+    var stringsPath = Path.Combine(gameRoot, "game", "tl", "None", "common.rpym");
+    var stringsScript =
+      """
+      translate None strings:
+          old "Auto-Forward"
+          new "Auto-Forward"
+
+          old "Back to menu"
+          new "Back to menu"
+      """;
+    await File.WriteAllTextAsync(stringsPath, stringsScript);
+
+    var pipeline = BuildPipeline();
+    var options = new PipelineOptions
+    {
+      ProfileName = "renpy",
+      ProviderName = "mock",
+      OutputRoot = Path.Combine(tempRoot, "EGT_Output"),
+      BackupRoot = Path.Combine(tempRoot, "EGT_Backup"),
+      CacheFilePath = Path.Combine(tempRoot, "EGT_Cache", "cache.db"),
+      ApplyInPlace = false
+    };
+
+    var result = await pipeline.RunAsync(Path.Combine(gameRoot, "MyGame.exe"), options, progress: null, CancellationToken.None);
+
+    var translated = Directory
+      .EnumerateFiles(result.OutputRoot, "common.rpym", SearchOption.AllDirectories)
+      .Single();
+    var content = await File.ReadAllTextAsync(translated);
+
+    content.Should().Contain("old \"Auto-Forward\"");
+    content.Should().Contain("old \"Back to menu\"");
+    content.Should().Contain("new \"[ZH]Auto-Forward\"");
+    content.Should().Contain("new \"[ZH]Back to menu\"");
+    content.Should().NotContain("old \"[ZH]Auto-Forward\"");
+    content.Should().NotContain("old \"[ZH]Back to menu\"");
+  }
+
+  [Fact]
+  public async Task RunAsync_ShouldRetryFailedItems_WithConservativeSingleRequests()
+  {
+    var tempRoot = CreateTempDirectory();
+    var gameRoot = CopyFixtureTo(tempRoot);
+    var exePath = Path.Combine(gameRoot, "MyGame.exe");
+
+    var pipeline = BuildPipeline(new BatchFailThenSingleSuccessProvider());
+    var options = new PipelineOptions
+    {
+      ProfileName = "generic-text",
+      ProviderName = "flaky",
+      OutputRoot = Path.Combine(tempRoot, "EGT_Output"),
+      BackupRoot = Path.Combine(tempRoot, "EGT_Backup"),
+      CacheFilePath = Path.Combine(tempRoot, "EGT_Cache", "cache.db"),
+      ApplyInPlace = false,
+      MaxItemsPerBatch = 50,
+      MaxCharsPerBatch = 8000,
+      AiBatchSize = 20
+    };
+
+    var result = await pipeline.RunAsync(exePath, options, progress: null, CancellationToken.None);
+
+    result.FailedItems.Should().Be(0);
+    result.Warnings.Any(x => x.Contains("retry-recovered", StringComparison.OrdinalIgnoreCase)).Should().BeTrue();
+
+    var translatedJson = Directory
+      .EnumerateFiles(result.OutputRoot, "dialogue.json", SearchOption.AllDirectories)
+      .Single();
+    var translatedContent = await File.ReadAllTextAsync(translatedJson);
+    translatedContent.Should().Contain("[R]Welcome, hero!");
+  }
+
+  private static ITranslationPipeline BuildPipeline(params ITranslationProvider[] extraProviders)
   {
     var services = new ServiceCollection();
     services.AddLogging(x => x.SetMinimumLevel(LogLevel.Warning));
     services.AddEgtCore();
     services.AddRenPyProfile();
     services.AddGenericTextProfile();
-    var provider = services.BuildServiceProvider();
-    return provider.GetRequiredService<ITranslationPipeline>();
+    foreach (var extraProvider in extraProviders)
+    {
+      services.AddSingleton(typeof(ITranslationProvider), extraProvider);
+    }
+
+    var serviceProvider = services.BuildServiceProvider();
+    return serviceProvider.GetRequiredService<ITranslationPipeline>();
   }
 
   private static string CopyFixtureTo(string tempRoot)
@@ -265,6 +349,46 @@ public sealed class PipelineE2ETests
       var dest = Path.Combine(destDir, relative);
       Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
       File.Copy(file, dest, overwrite: true);
+    }
+  }
+
+  private sealed class BatchFailThenSingleSuccessProvider : ITranslationProvider
+  {
+    public string Name => "flaky";
+
+    public Task<TranslateResult> TranslateBatchAsync(
+      IReadOnlyList<TranslateItem> items,
+      TranslateOptions options,
+      CancellationToken ct)
+    {
+      if (items.Count > 1)
+      {
+        return Task.FromResult(new TranslateResult
+        {
+          Items = Array.Empty<TranslatedItem>(),
+          Errors = items.Select(x => new ProviderError
+          {
+            Id = x.Id,
+            Code = "forced_batch_error",
+            Message = "Forced batch error for retry-pass coverage.",
+            IsTransient = true
+          }).ToList()
+        });
+      }
+
+      var item = items.Single();
+      return Task.FromResult(new TranslateResult
+      {
+        Items = new[]
+        {
+          new TranslatedItem
+          {
+            Id = item.Id,
+            TranslatedText = "[R]" + item.Source
+          }
+        },
+        Errors = Array.Empty<ProviderError>()
+      });
     }
   }
 }

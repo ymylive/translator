@@ -58,6 +58,14 @@ dotnet run --project src/EGT.Cli -- --help
 dotnet run --project src/EGT.App
 ```
 
+### One-Click Start (Windows)
+
+Double-click `start_egt.bat` in repo root, or run:
+
+```bash
+start_egt.bat
+```
+
 ## CLI Examples
 
 ```bash

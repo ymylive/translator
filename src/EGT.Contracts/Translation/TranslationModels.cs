@@ -26,6 +26,10 @@ public sealed class TranslateOptions
   public string? FallbackProviderEndpoint { get; init; }
   public string? FallbackProviderModel { get; init; }
   public string? FallbackProviderRegion { get; init; }
+  public string? SecondFallbackProviderApiKey { get; init; }
+  public string? SecondFallbackProviderEndpoint { get; init; }
+  public string? SecondFallbackProviderModel { get; init; }
+  public string? SecondFallbackProviderRegion { get; init; }
 }
 
 public sealed class TranslateResult
